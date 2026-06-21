@@ -68,6 +68,32 @@ export function advanceScenario(stepMin = STEP_MIN) {
   clockMs = Math.min(clockMs + stepMin * 60_000, lastMs);
 }
 
+// Step the clock forward to the NEXT timestamped update — one new development per
+// poll. This drives the "Poke texts me a new update every minute" flow: each poll
+// surfaces a distinct event (dam overtops -> crests -> evacuate -> road closes ...),
+// so the alerts never repeat and Poke won't dedupe them. Returns false at the end.
+export function advanceToNextUpdate(): boolean {
+  const times = (sit.updates || [])
+    .map((u: any) => new Date(u.t).getTime())
+    .sort((a: number, b: number) => a - b);
+  const next = times.find((t: number) => t > clockMs);
+  if (next == null) return false;
+  clockMs = next;
+  return true;
+}
+
+// The single most-recent situation update at/just-before the current clock — the
+// "new development" Poke should announce this minute.
+export function latestUpdate() {
+  let latest: any = null;
+  for (const u of sit.updates || []) {
+    if (new Date(u.t).getTime() <= clockMs) latest = u;
+  }
+  if (!latest) return null;
+  const hst = new Date(latest.t).toLocaleTimeString("en-US", { timeZone: "Pacific/Honolulu", hour: "numeric", minute: "2-digit" });
+  return { at: hst, type: latest.type, severity: latest.severity, source: latest.source, text: latest.text };
+}
+
 // The situation + family state at the current clock, in reconcile()'s shapes.
 export function scenarioSnapshot() {
   const alerts = feedAlerts(sit, clockMs);   // everything known up to "now"
@@ -90,8 +116,10 @@ export function scenarioSnapshot() {
   };
   return {
     clockIso: new Date(clockMs).toISOString(),
+    clockMs,
     homeLabel: prof.home?.label || "Haiku, HI",
     persona: ap ? (ap.name || "onboarded household") : "demo family of five",
+    latest: latestUpdate(),
     alerts, shelters, profile, position: ping,
   };
 }

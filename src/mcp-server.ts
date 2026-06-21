@@ -10,7 +10,7 @@ import { geocodeAddress } from "./geocode.js";
 import { mockAlerts } from "./sources/mock.js";
 import { nwsAlerts } from "./sources/nws.js";
 import { mauiScrapedAlerts, demoFloodAlerts } from "./sources/maui.js";
-import { startScenario, stopScenario, isScenarioActive, setScenarioTime, advanceScenario, scenarioSnapshot, setActiveProfile, getActiveProfile } from "./sources/scenario.js";
+import { startScenario, stopScenario, isScenarioActive, setScenarioTime, advanceScenario, advanceToNextUpdate, scenarioSnapshot, setActiveProfile, getActiveProfile } from "./sources/scenario.js";
 
 // Poke (and any MCP client) connects to this server's /sse endpoint and can call
 // the tool below. This is the two-way, adaptive path: a resident texts their Poke
@@ -80,6 +80,16 @@ function deriveTasks(result: any, snap: any): string[] {
   const roads = [...new Set(closures.flatMap((a: any) => a.raw?.roads || []))];
   if (roads.length) tasks.push(`Avoid closed roads: ${roads.slice(0, 4).join(", ")}`);
   return tasks;
+}
+
+// Browserbase web findings that would exist BY the current scenario time — gated on
+// each article's published timestamp. So as the clock advances, real news coverage
+// "catches up" to the event (official feed leads, web reporting follows).
+function newsAsOf(clockMs: number): any[] {
+  return (demoAlertsCache || []).filter((a: any) => {
+    const t = a.article_published ? new Date(a.article_published).getTime() : NaN;
+    return !Number.isNaN(t) && t <= clockMs;
+  });
 }
 
 function buildServer() {
@@ -178,16 +188,15 @@ function buildServer() {
       // clock each poll so guidance evolves; reconcile over the situation feed +
       // the feed's shelters, personalized to the family's CURRENT GPS position.
       if (isScenarioActive()) {
-        advanceScenario();
+        advanceToNextUpdate();   // one new timestamped development per poll
         const snap = scenarioSnapshot();
-        // Merge the OFFICIAL situation feed (evolving by clock) with what BROWSERBASE
-        // found on the web for this same event (cached once discovery completes).
-        // reconcile sees both — official timeline + real news — and personalizes to GPS.
-        const news = demoAlertsCache || [];
+        // Merge the OFFICIAL situation feed (up to now) with the BROWSERBASE web
+        // findings that would EXIST by this scenario time (gated on publish time).
+        const news = newsAsOf(snap.clockMs);
         const merged = [...snap.alerts, ...news];
         const threats = merged.filter(isThreat);
         if (!threats.length) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "no_active_threat", scenario_time: snap.clockIso, news_ready: !!demoAlertsCache, checked: merged.length }) }] };
+          return { content: [{ type: "text", text: JSON.stringify({ status: "no_active_threat", scenario_time: snap.clockIso, latest_update: snap.latest, checked: merged.length }) }] };
         }
         const zoneLabel = "Haiku (Kaupakalua Dam downstream corridor)";
         const result = await reconcile(snap.profile, merged, snap.shelters, zoneLabel);
@@ -195,9 +204,13 @@ function buildServer() {
         return { content: [{ type: "text", text: JSON.stringify({
           status: "active_threat",
           scenario_time: snap.clockIso,
+          // The single NEW development this minute — Poke announces this so each text
+          // is distinct (no dedupe) and reads like a live, evolving situation.
+          latest_update: snap.latest,
           family_position: snap.position ? { lat: snap.position.lat, lng: snap.position.lng, speed_mph: snap.position.speed_mph } : "at home",
-          sources: { official_feed: snap.alerts.length, web_articles_browserbase: news.length, news_ready: !!demoAlertsCache },
-          threats: threats.slice(0, 8).map((t: any) => `[${t.source}] ${t.event}${t.issued_at ? " @ " + t.issued_at : ""}`),
+          sources: { official_feed: snap.alerts.length, web_articles_browserbase: news.length },
+          recommended_action: result.recommended_action,
+          destination: result.destination,
           ...result
         }, null, 2) }] };
       }
@@ -331,17 +344,18 @@ app.post("/profile", express.json(), (req, res) => {
 app.get("/demo-state", (_req, res) => {
   if (!isScenarioActive()) { res.json({ active: false }); return; }
   const snap = scenarioSnapshot();
-  const news = demoAlertsCache || [];
+  const news = newsAsOf(snap.clockMs);   // only coverage published by "now"
   res.json({
     active: true,
     scenario_time: snap.clockIso,
     persona: snap.persona,
+    latest_update: snap.latest,
     position: snap.position
       ? { lat: snap.position.lat, lng: snap.position.lng, speed_mph: snap.position.speed_mph, heading_deg: snap.position.heading_deg }
       : null,
     shelters: snap.shelters,
     news: [...snap.alerts].reverse().slice(0, 12).map((a: any) => ({ source: a.source, event: a.event, area: a.area, text: a.text, severity: a.severity, issued_at: a.issued_at })),
-    web_articles: news.slice(0, 8).map((a: any) => ({ source: a.source, event: a.event, text: a.text })),
+    web_articles: news.slice(0, 8).map((a: any) => ({ source: a.source, event: a.event, text: a.text, published: a.article_published })),
     guidance: lastGuidance,
     tasks: lastGuidance ? deriveTasks(lastGuidance, snap) : [],
   });
