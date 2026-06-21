@@ -28,9 +28,10 @@ async function runForProfile(p: any, alerts: any[], doSend: boolean) {
   console.log(JSON.stringify(result, null, 2));
 
   if (doSend && p.phone) {
+    // Keep the SMS short (trial accounts cap message segments). The full
+    // how_to_get_there detail lives in the web UI; the text gets the core action.
     const body = `${result.recommended_action}` +
       (result.destination ? `\nGo to: ${result.destination}.` : "") +
-      (result.how_to_get_there ? `\n${result.how_to_get_there}` : "") +
       (result.fail_safe ? `\n(Follow official guidance; this is advisory.)` : "");
     await sendMessage(p.phone, body);
     console.log("[sent to", p.phone + "]");

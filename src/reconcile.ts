@@ -59,7 +59,8 @@ Hard rules:
 - NEVER contradict an official evacuation order. If an order says evacuate, do not tell them to stay.
 - If the alerts conflict on the core action (evacuate vs shelter in place), or you are not confident, set fail_safe=true and tell the resident to follow official guidance and monitor official channels.
 - Personalize: someone with no car needs transit-accessible or pickup options, not a driving route. A family with pets needs a pet-friendly shelter. Mobility needs require accessible shelters.
-- Be concise and calm. Output STRICT JSON only, no markdown.`;
+- Be concise and calm. Output STRICT JSON only, no markdown.
+- recommended_action MUST be at most 2 short sentences (under 240 characters) and use plain ASCII punctuation only (no em dashes or curly quotes) — it is sent verbatim as one SMS.`;
 
   const user = {
     profile, zone: zoneName, alerts, shelters,

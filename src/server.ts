@@ -47,4 +47,5 @@ app.get("/api/config", (_req, res) => {
   res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || null });
 });
 
-app.listen(3000, () => console.log("http://localhost:3000"));
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
