@@ -1,5 +1,10 @@
 const $ = (id) => document.getElementById(id);
 
+// Base URL of the MCP/Poke bridge server (src/mcp-server.ts, default :3333). The app
+// POSTs the onboarded profile here and polls /demo-state so the map, news feed, and
+// tasks mirror what Poke sees as the scenario advances. Override via window.MCP_BASE.
+const MCP_BASE = (window.MCP_BASE || "http://localhost:3333").replace(/\/$/, "");
+
 const DISPLAY = {
   vehicle_access: {
     yes: "Yes, I have a vehicle",
@@ -2363,6 +2368,7 @@ async function enterPlatform(guidance) {
     platform.hidden = false;
     renderPlatform();
     switchPlatformTab("home");
+    startDemoStatePolling();
     if (prefersReducedMotion()) {
       platform.classList.add("is-active");
     } else {
@@ -2382,8 +2388,69 @@ function exitPlatform() {
     platform.classList.remove("is-active");
     platform.hidden = true;
   }
+  stopDemoStatePolling();
   state.guidance = null;
   state.platformTab = "home";
+}
+
+// ---- Live scenario sync ----------------------------------------------------
+// While on the platform, poll the MCP bridge's /demo-state. When the Poke-driven
+// scenario is active, mirror it in the app: news feed, "Right now" tasks, guidance,
+// and a live map pin that moves with the family's GPS. No-ops when the MCP server
+// isn't running or no scenario is active, so the normal app is unaffected.
+let demoStateTimer = null;
+
+// Bounding box of the Haiku -> Hana evacuation corridor, to project GPS onto the
+// stylized map (approximate — conveys movement, not survey-grade position).
+const DEMO_BBOX = { latMin: 20.75, latMax: 20.93, lngMin: -156.3, lngMax: -155.98 };
+
+function updateLiveMapPin(pos) {
+  const el = $("map-pins");
+  if (!el || !pos) return;
+  const x = Math.max(3, Math.min(97, ((pos.lng - DEMO_BBOX.lngMin) / (DEMO_BBOX.lngMax - DEMO_BBOX.lngMin)) * 100));
+  const y = Math.max(3, Math.min(97, ((DEMO_BBOX.latMax - pos.lat) / (DEMO_BBOX.latMax - DEMO_BBOX.latMin)) * 100));
+  let pin = el.querySelector(".map-pin--live");
+  if (!pin) {
+    pin = document.createElement("div");
+    pin.className = "map-pin map-pin--you map-pin--live";
+    pin.innerHTML = '<span class="map-pin__dot"></span><span class="map-pin__label">You</span><span class="map-pin__status">Evacuating</span>';
+    el.appendChild(pin);
+  }
+  pin.style.left = `${x}%`;
+  pin.style.top = `${y}%`;
+}
+
+function applyDemoState(d) {
+  if (!d || !d.active) return;
+  if (Array.isArray(d.news) && d.news.length) {
+    state.cachedAlerts = d.news;
+    renderUpdatesFeed(d.news, "updates-feed", state.updateFilter);
+    renderHomeUpdatesPreview(d.news);
+  }
+  if (Array.isArray(d.tasks) && d.tasks.length) {
+    const items = d.tasks.map((t, i) => ({ id: `live-${i}`, label: t, detail: "", urgent: true }));
+    renderPrepListSection("prep-now-list", items, "now");
+  }
+  if (d.guidance && d.guidance.recommended_action) renderHomeGuidance(d.guidance);
+  if (d.position) updateLiveMapPin(d.position);
+}
+
+async function pollDemoStateOnce() {
+  try {
+    const res = await fetch(`${MCP_BASE}/demo-state`, { cache: "no-store" });
+    if (!res.ok) return;
+    applyDemoState(await res.json());
+  } catch { /* MCP bridge not running — ignore */ }
+}
+
+function startDemoStatePolling() {
+  if (demoStateTimer) return;
+  pollDemoStateOnce();
+  demoStateTimer = setInterval(pollDemoStateOnce, 3000);
+}
+
+function stopDemoStatePolling() {
+  if (demoStateTimer) { clearInterval(demoStateTimer); demoStateTimer = null; }
 }
 
 function setActivateHint(msg, isError = false) {
@@ -2411,6 +2478,15 @@ async function fetchGuidance() {
       body.lng = state.selectedAddress.lng;
     }
   }
+
+  // Bridge: tell the Poke/MCP server who this household is, so the scenario Poke
+  // plays is personalized to the onboarding answers. Fire-and-forget — never blocks
+  // or fails activation (the MCP server may not be running in a web-only setup).
+  fetch(`${MCP_BASE}/profile`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
 
   const resetBtn = () => {
     btn.classList.remove("btn--loading");

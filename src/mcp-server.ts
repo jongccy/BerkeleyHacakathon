@@ -10,6 +10,7 @@ import { geocodeAddress } from "./geocode.js";
 import { mockAlerts } from "./sources/mock.js";
 import { nwsAlerts } from "./sources/nws.js";
 import { mauiScrapedAlerts, demoFloodAlerts } from "./sources/maui.js";
+import { startScenario, stopScenario, isScenarioActive, setScenarioTime, advanceScenario, scenarioSnapshot, setActiveProfile, getActiveProfile } from "./sources/scenario.js";
 
 // Poke (and any MCP client) connects to this server's /sse endpoint and can call
 // the tool below. This is the two-way, adaptive path: a resident texts their Poke
@@ -65,6 +66,22 @@ function isThreat(a: any): boolean {
   return THREAT_RE.test(text) && severeEnough;
 }
 
+// Latest reconciled scenario guidance, cached so GET /demo-state (which the web app
+// polls) is cheap — no LLM call per poll. Updated whenever a scenario tool runs.
+let lastGuidance: any = null;
+
+// Derive a short, checkable task list from the guidance + feed road closures, for the
+// app's "tasks" panel.
+function deriveTasks(result: any, snap: any): string[] {
+  const tasks: string[] = [];
+  if (result?.recommended_action) tasks.push(result.recommended_action);
+  if (result?.destination) tasks.push(`Head to ${result.destination}`);
+  const closures = (snap?.alerts || []).filter((a: any) => a.type === "road_closure" && a.raw?.status !== "reopened");
+  const roads = [...new Set(closures.flatMap((a: any) => a.raw?.roads || []))];
+  if (roads.length) tasks.push(`Avoid closed roads: ${roads.slice(0, 4).join(", ")}`);
+  return tasks;
+}
+
 function buildServer() {
   const server = new McpServer({ name: "maui-evac", version: "1.0.0" });
 
@@ -84,7 +101,25 @@ function buildServer() {
       }
     },
     async ({ address, household_size, has_car, mobility_needs, pets, live }) => {
-      console.log(`[tool call] get_evacuation_guidance`, JSON.stringify({ address, household_size, has_car, mobility_needs, pets, live }));
+      console.log(`[tool call] get_evacuation_guidance`, JSON.stringify({ address, household_size, has_car, mobility_needs, pets, live, scenario: isScenarioActive() }));
+
+      // If the East Maui scenario is playing, answer reactive questions from it too
+      // (current moment, no clock advance) so Poke is consistent across both tools.
+      if (isScenarioActive()) {
+        const snap = scenarioSnapshot();
+        const news = demoAlertsCache || [];
+        const merged = [...snap.alerts, ...news];
+        const zoneLabel = "Haiku (Kaupakalua Dam downstream corridor)";
+        const result = await reconcile(snap.profile, merged, snap.shelters, zoneLabel);
+        lastGuidance = result;   // cache for GET /demo-state (web app polls it)
+        return { content: [{ type: "text", text: JSON.stringify({
+          scenario_time: snap.clockIso,
+          family_position: snap.position ? { lat: snap.position.lat, lng: snap.position.lng } : "at home",
+          sources: { official_feed: snap.alerts.length, web_articles_browserbase: news.length },
+          zone: zoneLabel, ...result
+        }, null, 2) }] };
+      }
+
       const geo = await geocodeAddress(address);
       if (!geo) {
         return {
@@ -137,7 +172,36 @@ function buildServer() {
       }
     },
     async ({ address, household_size, has_car, mobility_needs, pets }) => {
-      console.log(`[tool call] check_active_threats`, JSON.stringify({ address, demoArmed }));
+      console.log(`[tool call] check_active_threats`, JSON.stringify({ address, demoArmed, scenario: isScenarioActive() }));
+
+      // SCENARIO MODE (East Maui / Kaupakalua feed) takes precedence. Advance the
+      // clock each poll so guidance evolves; reconcile over the situation feed +
+      // the feed's shelters, personalized to the family's CURRENT GPS position.
+      if (isScenarioActive()) {
+        advanceScenario();
+        const snap = scenarioSnapshot();
+        // Merge the OFFICIAL situation feed (evolving by clock) with what BROWSERBASE
+        // found on the web for this same event (cached once discovery completes).
+        // reconcile sees both — official timeline + real news — and personalizes to GPS.
+        const news = demoAlertsCache || [];
+        const merged = [...snap.alerts, ...news];
+        const threats = merged.filter(isThreat);
+        if (!threats.length) {
+          return { content: [{ type: "text", text: JSON.stringify({ status: "no_active_threat", scenario_time: snap.clockIso, news_ready: !!demoAlertsCache, checked: merged.length }) }] };
+        }
+        const zoneLabel = "Haiku (Kaupakalua Dam downstream corridor)";
+        const result = await reconcile(snap.profile, merged, snap.shelters, zoneLabel);
+        lastGuidance = result;   // cache for GET /demo-state (web app polls it)
+        return { content: [{ type: "text", text: JSON.stringify({
+          status: "active_threat",
+          scenario_time: snap.clockIso,
+          family_position: snap.position ? { lat: snap.position.lat, lng: snap.position.lng, speed_mph: snap.position.speed_mph } : "at home",
+          sources: { official_feed: snap.alerts.length, web_articles_browserbase: news.length, news_ready: !!demoAlertsCache },
+          threats: threats.slice(0, 8).map((t: any) => `[${t.source}] ${t.event}${t.issued_at ? " @ " + t.issued_at : ""}`),
+          ...result
+        }, null, 2) }] };
+      }
+
       const geo = await geocodeAddress(address);
       if (!geo) {
         return { content: [{ type: "text", text: JSON.stringify({ status: "error", error: `Could not locate "${address}".` }) }], isError: true };
@@ -201,10 +265,80 @@ function buildServer() {
     }
   );
 
+  // Scenario control: play the real East Maui (Kaupakalua Dam, Mar 2021) situation
+  // feed through the tools. Each subsequent check_active_threats poll advances the
+  // scenario clock, so the guidance evolves (warning -> evacuate -> all clear) and
+  // tracks the family's GPS position. Optionally jump to a specific time with `at`.
+  server.registerTool(
+    "set_demo_scenario",
+    {
+      title: "Play/stop the East Maui (Kaupakalua Dam) scenario",
+      description:
+        "Demo control for the East Maui Kaupakalua Dam flood scenario. Call with active=true to start playing the real situation feed; each later check_active_threats poll advances the timeline so guidance evolves and follows the family's GPS position. Pass at='HH:MM' (HST, e.g. '14:42') to jump to a specific moment. Call active=false to stop.",
+      inputSchema: {
+        active: z.boolean().describe("true = play the East Maui scenario; false = stop"),
+        at: z.string().optional().describe("Optional scenario time to jump to, 'HH:MM' HST (e.g. '14:42' = imminent dam failure)")
+      }
+    },
+    async ({ active, at }) => {
+      if (!active) {
+        stopScenario();
+        console.log(`[tool call] set_demo_scenario active=false`);
+        return { content: [{ type: "text", text: JSON.stringify({ scenario_active: false, note: "East Maui scenario stopped." }) }] };
+      }
+      startScenario(at);
+      if (at) setScenarioTime(at);
+      startDemoDiscovery();   // ALSO kick off Browserbase in the background — its web
+                              // findings for this same event merge into the guidance.
+      console.log(`[tool call] set_demo_scenario active=true at=${at || "start"}`);
+      return { content: [{ type: "text", text: JSON.stringify({ scenario_active: true, at: at || "start", note: "East Maui (Kaupakalua Dam) demo started. The official situation feed + family GPS are live now; Browserbase is reading the real news articles in the background (~3 min) and will merge into the guidance. Each check_active_threats poll advances the timeline." }) }] };
+    }
+  );
+
   return server;
 }
 
 const app = express();
+
+// Permissive CORS so the web app (served from :3000) can call the bridge endpoints
+// (/profile, /demo-state) on this server (:3333). Harmless for the SSE/MCP routes.
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  if (req.method === "OPTIONS") { res.sendStatus(204); return; }
+  next();
+});
+
+// BRIDGE: the web app POSTs the onboarded household here; the scenario personalizes
+// to it (express.json only on this route — /messages must read its raw body).
+app.post("/profile", express.json(), (req, res) => {
+  setActiveProfile(req.body || null);
+  const p = req.body || {};
+  console.log(`[profile] active profile set: ${JSON.stringify({ name: p.name, has_car: p.has_car, pets: p.pets, mobility_needs: p.mobility_needs, household_size: p.household_size })}`);
+  res.json({ ok: true, persona: p.name || "household" });
+});
+
+// BRIDGE: the web app polls this to mirror what Poke sees — map position, news feed,
+// and tasks — all driven by the same scenario clock Poke advances. Cheap (no LLM).
+app.get("/demo-state", (_req, res) => {
+  if (!isScenarioActive()) { res.json({ active: false }); return; }
+  const snap = scenarioSnapshot();
+  const news = demoAlertsCache || [];
+  res.json({
+    active: true,
+    scenario_time: snap.clockIso,
+    persona: snap.persona,
+    position: snap.position
+      ? { lat: snap.position.lat, lng: snap.position.lng, speed_mph: snap.position.speed_mph, heading_deg: snap.position.heading_deg }
+      : null,
+    shelters: snap.shelters,
+    news: [...snap.alerts].reverse().slice(0, 12).map((a: any) => ({ source: a.source, event: a.event, area: a.area, text: a.text, severity: a.severity, issued_at: a.issued_at })),
+    web_articles: news.slice(0, 8).map((a: any) => ({ source: a.source, event: a.event, text: a.text })),
+    guidance: lastGuidance,
+    tasks: lastGuidance ? deriveTasks(lastGuidance, snap) : [],
+  });
+});
 
 // One SSE transport per client connection, keyed by the transport's sessionId.
 // Note: we deliberately do NOT mount express.json() — SSEServerTransport reads the
