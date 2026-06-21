@@ -1,6 +1,51 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || "demo" });
+
+function hasLlmCredentials() {
+  if (process.env.LLM_PROVIDER === "asi1" && process.env.ASI1_API_KEY) return true;
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+function demoGuidance(profile: any, alerts: any[], shelters: any[], zoneName: string | null) {
+  const hasCar = profile.has_car === 1;
+  const hasPets = profile.pets === 1;
+  const mobility = profile.mobility_needs && profile.mobility_needs !== "none";
+
+  let destination: string | null = null;
+  if (hasPets) {
+    destination = shelters.find((s: any) => s.pet_friendly)?.name ?? shelters[0]?.name ?? null;
+  } else if (mobility) {
+    destination = shelters.find((s: any) => s.accessible)?.name ?? shelters[0]?.name ?? null;
+  } else if (hasCar) {
+    destination = shelters[0]?.name ?? null;
+  } else {
+    destination = shelters.find((s: any) => s.transit_accessible)?.name ?? shelters[0]?.name ?? null;
+  }
+
+  const alertSummary = alerts[0]?.event
+    ? `${alerts[0].event} — follow official county guidance.`
+    : "Sample evacuation advisory for West Maui.";
+
+  const recommended_action = zoneName
+    ? hasCar
+      ? "Evacuate now via official routes. Take your household and go-bag."
+      : "Evacuate now. Use Maui County transit or proceed to the nearest pickup point."
+    : "No active evacuation order for your address. Stay alert and monitor official channels.";
+
+  return {
+    authoritative_summary: alertSummary,
+    applies_to_user: !!zoneName,
+    recommended_action,
+    destination,
+    how_to_get_there: hasCar
+      ? "Drive on designated evacuation routes. Do not use unmarked shortcuts."
+      : "Use county transit or evacuation pickup locations listed on mauicounty.gov.",
+    confidence: 0.75,
+    fail_safe: false,
+    reasoning: "Demo guidance generated locally (LLM unavailable).",
+  };
+}
 
 // ASI:One (Fetch.ai) is an OpenAI-compatible chat-completions API. Routing the
 // reconcile step through it lets the project legitimately run on Fetch's model
@@ -51,6 +96,11 @@ async function callLLM(system: string, userContent: string): Promise<string> {
 }
 
 export async function reconcile(profile: any, alerts: any[], shelters: any[], zoneName: string | null) {
+  if (!hasLlmCredentials()) {
+    console.warn("[reconcile] No LLM credentials — using demo guidance.");
+    return demoGuidance(profile, alerts, shelters, zoneName);
+  }
+
   const system = `You are an emergency guidance assistant for Maui County.
 You receive (1) multiple, possibly conflicting alerts from official channels, (2) one resident's household profile, (3) the official list of shelters, and (4) the resident's evacuation zone if known.
 
@@ -76,8 +126,18 @@ Hard rules:
     }
   };
 
-  let raw = await callLLM(system, JSON.stringify(user));
+  let raw: string;
+  try {
+    raw = await callLLM(system, JSON.stringify(user));
+  } catch (err) {
+    console.warn("[reconcile] LLM call failed — using demo guidance.", err);
+    return demoGuidance(profile, alerts, shelters, zoneName);
+  }
+
   raw = raw.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
-  try { return JSON.parse(raw); }
-  catch { return { fail_safe: true, recommended_action: "Follow official guidance and monitor local emergency channels.", confidence: 0, reasoning: "parse_error" }; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return demoGuidance(profile, alerts, shelters, zoneName);
+  }
 }

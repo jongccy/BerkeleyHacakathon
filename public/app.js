@@ -45,10 +45,68 @@ const REVIEW_KEYS = [
   { key: "animals", label: "Animals" },
 ];
 
+const REVIEW_RADIO_OPTIONS = {
+  vehicle_access: [
+    { value: "yes", label: "Yes, I have a vehicle" },
+    { value: "no", label: "No, I need transit or pickup" },
+  ],
+  vehicle_count: [
+    { value: "1", label: "1 vehicle" },
+    { value: "2", label: "2 vehicles" },
+    { value: "3plus", label: "3 or more vehicles" },
+  ],
+  evacuating: [
+    { value: "solo", label: "No — I'm evacuating alone" },
+    { value: "small", label: "Yes, 1 to 2 dependents" },
+    { value: "large", label: "Yes, 3 or more dependents" },
+  ],
+  vulnerable: [
+    { value: "none", label: "None" },
+    { value: "infants", label: "Yes, infants under 2" },
+    { value: "seniors", label: "Yes, seniors 75+" },
+    { value: "both", label: "Yes, both" },
+  ],
+  accessibility: [
+    { value: "none", label: "None needed" },
+    { value: "wheelchair", label: "Wheelchair accessible facility required" },
+    { value: "medical", label: "Medical equipment power required" },
+    { value: "other", label: "Other…" },
+  ],
+  animals: [
+    { value: "none", label: "No pets" },
+    { value: "pets", label: "Yes, bringing domestic pets" },
+    { value: "service", label: "Certified service animal only" },
+  ],
+};
+
+let openEditorKey = null;
+let openEditorListId = null;
+let reviewAddressSelection = null;
+
+const PROFILE_KEYS = [
+  { key: "name", label: "Your name" },
+  { key: "phone", label: "Mobile number" },
+  { key: "birth_date", label: "Date of birth", readonly: true },
+  ...REVIEW_KEYS,
+];
+
+const DEPENDENT_MOCK_DETAILS = [
+  { name: "Maya", location: "140 Kupuohi St, Lahaina, HI 96761", status: "Needs pickup", dot: "warn", mapX: 64, mapY: 34 },
+  { name: "Jordan", location: "45 Kaiwili St, Lahaina, HI 96761", status: "Safe", dot: "safe", mapX: 28, mapY: 56 },
+  { name: "Sam", location: "225 Piikea Ave, Kihei, HI 96753", status: "Safe", dot: "safe", mapX: 74, mapY: 64 },
+];
+
 const state = {
   step: 0,
   selectedAddress: null,
   data: {},
+  guidance: null,
+  platformTab: "home",
+  updateFilter: "all",
+  homeUpdateFilter: "all",
+  cachedAlerts: [],
+  invitedMembers: [],
+  prepChecked: {},
 };
 
 let isTransitioning = false;
@@ -103,19 +161,6 @@ function revealReviewList() {
   });
 }
 
-function revealResultCard() {
-  const card = $("result-card");
-  if (!card) return;
-  card.classList.remove("is-visible");
-  if (prefersReducedMotion()) {
-    card.classList.add("is-visible");
-    return;
-  }
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => card.classList.add("is-visible"));
-  });
-}
-
 const ADDRESS_FIELD_HTML = `
   <input id="address" type="text" placeholder="e.g. 123 Main St, Lahaina, HI" autocomplete="off" aria-autocomplete="list" aria-controls="addr-suggestions" aria-expanded="false">
   <ul id="addr-suggestions" class="addr-suggestions" hidden role="listbox" aria-label="Address suggestions"></ul>
@@ -152,8 +197,6 @@ function updateProgressLabel() {
     el.textContent = `Question ${state.step - 1} of 7`;
   } else if (state.step === 10) {
     el.textContent = "Review";
-  } else if (state.step === 11) {
-    el.textContent = "";
   } else {
     el.textContent = "Profile setup";
   }
@@ -189,7 +232,6 @@ async function goToStep(next) {
       renderReview();
       revealReviewList();
     }
-    if (next === 11) revealResultCard();
   } finally {
     isTransitioning = false;
   }
@@ -557,16 +599,17 @@ function bindPhoneInput() {
   });
 }
 
-function bindAddressAutocomplete() {
-  const input = $("address");
-  const list = $("addr-suggestions");
-  const wrap = $("addr-slot");
-  if (!input || !list || !wrap) return;
+function bindScopedAddressAutocomplete({ input, list, getSelected, setSelected, onHint }) {
+  if (!input || !list) return;
 
   let suggestTimer = null;
   let activeIndex = -1;
   let suggestions = [];
   let fetchAbort = null;
+
+  const setHintLocal = (msg, isError = false) => {
+    if (onHint) onHint(msg, isError);
+  };
 
   const setListOpen = (open) => {
     input.classList.toggle("has-suggestions", open);
@@ -589,11 +632,10 @@ function bindAddressAutocomplete() {
   };
 
   const selectSuggestion = (item) => {
-    state.selectedAddress = { address: item.label, lat: item.lat, lng: item.lng };
-    state.data.address = item.label;
+    setSelected({ address: item.label, lat: item.lat, lng: item.lng });
     input.value = item.label;
     hideList();
-    setHint("Selected: " + item.label);
+    setHintLocal("Selected: " + item.label);
   };
 
   const renderList = (items) => {
@@ -633,17 +675,18 @@ function bindAddressAutocomplete() {
 
   input.addEventListener("input", () => {
     const q = input.value.trim();
-    if (state.selectedAddress && state.selectedAddress.address !== input.value) {
-      state.selectedAddress = null;
+    const sel = getSelected();
+    if (sel && sel.address !== input.value) {
+      setSelected(null);
     }
     if (q.length < 2) {
       hideList();
-      setHint("Start typing your US address.");
+      setHintLocal("Start typing your US address.");
       return;
     }
     clearTimeout(suggestTimer);
     suggestTimer = setTimeout(() => fetchSuggestions(q), 250);
-    setHint("Pick your address from the list.");
+    setHintLocal("Pick your address from the list.");
   });
 
   input.addEventListener("keydown", (e) => {
@@ -678,7 +721,28 @@ function bindAddressAutocomplete() {
 
   input.addEventListener("focus", () => {
     const q = input.value.trim();
-    if (q.length >= 2 && !state.selectedAddress) fetchSuggestions(q);
+    if (q.length >= 2 && !getSelected()) fetchSuggestions(q);
+  });
+}
+
+function bindAddressAutocomplete() {
+  const input = $("address");
+  const list = $("addr-suggestions");
+  if (!input || !list) return;
+
+  bindScopedAddressAutocomplete({
+    input,
+    list,
+    getSelected: () => state.selectedAddress,
+    setSelected: (sel) => {
+      if (sel) {
+        state.selectedAddress = sel;
+        state.data.address = sel.address;
+      } else {
+        state.selectedAddress = null;
+      }
+    },
+    onHint: (msg, isError) => setHint(msg, isError),
   });
 }
 
@@ -692,25 +756,43 @@ function initAddress() {
 
 function displayValue(key) {
   const val = state.data[key];
+  if (key === "name") return state.data.name || "—";
+  if (key === "phone") return state.data.phone || "—";
+  if (key === "birth_date") {
+    if (!state.data.birth_date) return "—";
+    const age = state.data.age != null ? ` · Age ${state.data.age}` : "";
+    return `${state.data.birth_date}${age}`;
+  }
   if (key === "address") return state.data.address || "—";
   if (key === "accessibility" && val === "other") return state.data.accessibility_other || "Other";
   const map = DISPLAY[key];
   return map?.[val] || val || "—";
 }
 
+function getEditItem(key, listId) {
+  return document.querySelector(`#${listId} .review-item[data-review-key="${key}"]`);
+}
+
 function renderReview() {
   const list = $("review-list");
+  openEditorKey = null;
+  openEditorListId = null;
+  reviewAddressSelection = null;
   list.classList.remove("is-visible");
   list.innerHTML = REVIEW_KEYS.map(({ key, label }, i) => {
     const value = displayValue(key);
-    return `<li class="review-item" style="--i: ${i}">
-      <label class="review-item__label">
-        <input type="checkbox" class="review-item__check" data-review-key="${key}">
-        <span class="review-item__content">
-          <span class="review-item__title">${escapeHtml(label)}</span>
-          <span class="review-item__value">${escapeHtml(value)}</span>
-        </span>
-      </label>
+    return `<li class="review-item" data-review-key="${key}" style="--i: ${i}">
+      <div class="review-item__main">
+        <label class="review-item__label">
+          <input type="checkbox" class="review-item__check" data-review-key="${key}">
+          <span class="review-item__content">
+            <span class="review-item__title">${escapeHtml(label)}</span>
+            <span class="review-item__value">${escapeHtml(value)}</span>
+          </span>
+        </label>
+        <button type="button" class="review-item__edit" data-review-edit="${key}" aria-label="Edit ${escapeHtml(label)}">Edit</button>
+      </div>
+      <div class="review-item__editor" hidden></div>
     </li>`;
   }).join("");
 
@@ -718,6 +800,353 @@ function renderReview() {
   list.querySelectorAll(".review-item__check").forEach((cb) => {
     cb.addEventListener("change", updateActivateButton);
   });
+}
+
+function buildReviewEditorHtml(key) {
+  if (key === "name") {
+    return `<div class="review-editor">
+      <div class="field">
+        <input type="text" class="review-editor__text-input" data-profile-field="name" value="${escapeHtml(state.data.name || "")}" placeholder="First name">
+      </div>
+      <button type="button" class="btn btn--primary btn--sm review-editor__done">Save</button>
+    </div>`;
+  }
+  if (key === "phone") {
+    return `<div class="review-editor">
+      <div class="field">
+        <input type="tel" class="review-editor__text-input" data-profile-field="phone" value="${escapeHtml(state.data.phone || "")}" placeholder="+1 (555) 000-0000">
+      </div>
+      <button type="button" class="btn btn--primary btn--sm review-editor__done">Save</button>
+    </div>`;
+  }
+  if (key === "address") {
+    return `
+      <div class="review-editor review-editor--address">
+        <div class="field field--address">
+          <input type="text" class="review-editor__address-input" placeholder="e.g. 123 Main St, Lahaina, HI" autocomplete="off" aria-autocomplete="list" value="${escapeHtml(state.data.address || "")}">
+          <ul class="addr-suggestions review-editor__suggestions" hidden role="listbox" aria-label="Address suggestions"></ul>
+        </div>
+        <p class="hint review-editor__hint"></p>
+        <button type="button" class="btn btn--primary btn--sm review-editor__done">Save address</button>
+      </div>`;
+  }
+
+  const options = REVIEW_RADIO_OPTIONS[key];
+  if (!options) return "";
+
+  const current = state.data[key];
+  const choices = options
+    .map(
+      (o) => `<label class="choice${current === o.value ? " is-selected" : ""}">
+      <input type="radio" name="review-edit-${key}" value="${o.value}"${current === o.value ? " checked" : ""}>
+      <span>${escapeHtml(o.label)}</span>
+    </label>`
+    )
+    .join("");
+
+  let otherHtml = "";
+  if (key === "accessibility") {
+    const isOther = current === "other";
+    otherHtml = `
+      <div class="accessibility-other review-editor__other${isOther ? " is-open" : ""}">
+        <div class="accessibility-other__inner">
+          <div class="field">
+            <label>Describe your requirement</label>
+            <input type="text" class="review-editor__accessibility-other" placeholder="e.g. sign language interpreter, oxygen tank storage" value="${escapeHtml(state.data.accessibility_other || "")}">
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn btn--primary btn--sm review-editor__done review-editor__done--accessibility"${isOther ? "" : " hidden"}>Save</button>`;
+  }
+
+  return `<div class="review-editor review-editor--choices">
+    <div class="choices" role="radiogroup">${choices}</div>
+    ${otherHtml}
+  </div>`;
+}
+
+function updateEditableItemValue(key, listId) {
+  const item = getEditItem(key, listId);
+  if (!item) return;
+  const valueEl = item.querySelector(".review-item__value");
+  if (valueEl) valueEl.textContent = displayValue(key);
+}
+
+function updateReviewItemValue(key) {
+  updateEditableItemValue(key, "review-list");
+}
+
+function updateProfileItemValue(key) {
+  updateEditableItemValue(key, "profile-list");
+}
+
+function uncheckReviewItem(key) {
+  const cb = document.querySelector(`.review-item__check[data-review-key="${key}"]`);
+  if (cb) {
+    cb.checked = false;
+    updateActivateButton();
+  }
+}
+
+function syncMainFormField(key, value) {
+  if (key === "address") {
+    const input = $("address");
+    if (input) input.value = state.data.address || "";
+    return;
+  }
+
+  if (key === "accessibility") {
+    document.querySelectorAll('input[name="accessibility"]').forEach((radio) => {
+      radio.checked = radio.value === value;
+      radio.closest(".choice")?.classList.toggle("is-selected", radio.checked);
+    });
+    const field = $("accessibility-other-field");
+    const otherInput = $("accessibility-other");
+    if (value === "other") {
+      field?.classList.add("is-open");
+      if (otherInput && state.data.accessibility_other) {
+        otherInput.value = state.data.accessibility_other;
+      }
+    } else {
+      field?.classList.remove("is-open");
+      if (otherInput) otherInput.value = "";
+    }
+    return;
+  }
+
+  document.querySelectorAll(`input[name="${key}"]`).forEach((radio) => {
+    radio.checked = radio.value === value;
+    radio.closest(".choice")?.classList.toggle("is-selected", radio.checked);
+  });
+}
+
+function closeEditor(key, listId = openEditorListId) {
+  const item = getEditItem(key, listId);
+  if (!item) return;
+  const editor = item.querySelector(".review-item__editor");
+  editor.hidden = true;
+  editor.innerHTML = "";
+  item.classList.remove("is-editing");
+  if (openEditorKey === key && openEditorListId === listId) {
+    openEditorKey = null;
+    openEditorListId = null;
+  }
+  if (key === "address") reviewAddressSelection = null;
+}
+
+function closeReviewEditor(key) {
+  closeEditor(key, "review-list");
+}
+
+function openEditor(key, listId) {
+  if (openEditorKey && (openEditorKey !== key || openEditorListId !== listId)) {
+    closeEditor(openEditorKey, openEditorListId);
+  }
+
+  const item = getEditItem(key, listId);
+  if (!item) return;
+
+  const editor = item.querySelector(".review-item__editor");
+  editor.innerHTML = buildReviewEditorHtml(key);
+  editor.hidden = false;
+  item.classList.add("is-editing");
+  openEditorKey = key;
+  openEditorListId = listId;
+
+  if (key === "address") {
+    reviewAddressSelection = state.selectedAddress ? { ...state.selectedAddress } : null;
+    const input = editor.querySelector(".review-editor__address-input");
+    const list = editor.querySelector(".review-editor__suggestions");
+    const hint = editor.querySelector(".review-editor__hint");
+    bindScopedAddressAutocomplete({
+      input,
+      list,
+      getSelected: () => reviewAddressSelection,
+      setSelected: (sel) => {
+        reviewAddressSelection = sel;
+      },
+      onHint: (msg, isError) => {
+        if (!hint) return;
+        hint.textContent = msg;
+        hint.classList.toggle("is-error", isError);
+      },
+    });
+    input?.focus();
+  } else {
+    editor.querySelector(".review-editor__text-input")?.focus();
+  }
+
+  bindEditorEvents(item, key, listId);
+}
+
+function openReviewEditor(key) {
+  openEditor(key, "review-list");
+}
+
+function toggleEditor(key, listId) {
+  if (openEditorKey === key && openEditorListId === listId) closeEditor(key, listId);
+  else openEditor(key, listId);
+}
+
+function toggleReviewEditor(key) {
+  toggleEditor(key, "review-list");
+}
+
+function refreshPlatformAfterProfileEdit() {
+  renderMapPins();
+  renderFamilyScroll();
+  renderFamilyView();
+  renderPrepList();
+  const greeting = $("platform-greeting");
+  const avatar = $("platform-avatar");
+  if (greeting) greeting.textContent = `Hi, ${firstName(state.data.name)}`;
+  if (avatar) avatar.textContent = initials(state.data.name);
+}
+
+function applyFieldEdit(key, value, listId) {
+  state.data[key] = value;
+
+  if (key === "vehicle_access" && value === "no") {
+    state.data.vehicle_count = "na";
+    syncMainFormField("vehicle_count", "na");
+    updateEditableItemValue("vehicle_count", listId);
+    if (listId === "review-list") uncheckReviewItem("vehicle_count");
+  }
+
+  if (key === "accessibility" && value !== "other") {
+    delete state.data.accessibility_other;
+  }
+
+  syncMainFormField(key, value);
+  updateEditableItemValue(key, listId);
+  if (listId === "review-list") uncheckReviewItem(key);
+  closeEditor(key, listId);
+
+  if (listId === "profile-list") refreshPlatformAfterProfileEdit();
+
+  if (listId === "review-list" && key === "vehicle_access" && value === "yes" && state.data.vehicle_count === "na") {
+    requestAnimationFrame(() => openReviewEditor("vehicle_count"));
+  }
+}
+
+function applyReviewField(key, value) {
+  applyFieldEdit(key, value, "review-list");
+}
+
+function applyFieldAddress(item, listId) {
+  const hint = item.querySelector(".review-editor__hint");
+  if (!reviewAddressSelection?.address) {
+    if (hint) {
+      hint.textContent = "Choose an address from the suggestions.";
+      hint.classList.add("is-error");
+    }
+    return;
+  }
+  state.selectedAddress = { ...reviewAddressSelection };
+  state.data.address = reviewAddressSelection.address;
+  syncMainFormField("address");
+  updateEditableItemValue("address", listId);
+  if (listId === "review-list") uncheckReviewItem("address");
+  closeEditor("address", listId);
+  if (listId === "profile-list") refreshPlatformAfterProfileEdit();
+}
+
+function applyFieldAccessibility(item, listId) {
+  const editor = item.querySelector(".review-item__editor");
+  const otherInput = editor.querySelector(".review-editor__accessibility-other");
+  const text = otherInput?.value?.trim() || "";
+  if (!text) {
+    otherInput?.focus();
+    return;
+  }
+  state.data.accessibility = "other";
+  state.data.accessibility_other = text;
+  syncMainFormField("accessibility", "other");
+  const mainOther = $("accessibility-other");
+  if (mainOther) mainOther.value = text;
+  updateEditableItemValue("accessibility", listId);
+  if (listId === "review-list") uncheckReviewItem("accessibility");
+  closeEditor("accessibility", listId);
+  if (listId === "profile-list") refreshPlatformAfterProfileEdit();
+}
+
+function applyProfileTextField(item, key, listId) {
+  const input = item.querySelector(`[data-profile-field="${key}"]`);
+  if (!input) return;
+  if (key === "name") {
+    const name = input.value.trim();
+    if (!name) {
+      input.focus();
+      return;
+    }
+    state.data.name = name;
+    $("name").value = name;
+  }
+  if (key === "phone") {
+    const phone = input.value.trim();
+    if (!isPhoneComplete(phone)) {
+      input.focus();
+      return;
+    }
+    state.data.phone = formatPhoneDisplay(phone);
+    $("phone").value = state.data.phone;
+  }
+  updateEditableItemValue(key, listId);
+  closeEditor(key, listId);
+  refreshPlatformAfterProfileEdit();
+}
+
+function bindEditorEvents(item, key, listId) {
+  const editor = item.querySelector(".review-item__editor");
+
+  editor.querySelectorAll(".choice input[type=radio]").forEach((input) => {
+    input.addEventListener("change", () => {
+      editor.querySelectorAll(".choice").forEach((l) => l.classList.remove("is-selected"));
+      input.closest(".choice")?.classList.add("is-selected");
+
+      if (key === "accessibility" && input.value === "other") {
+        editor.querySelector(".review-editor__other")?.classList.add("is-open");
+        editor.querySelector(".review-editor__done--accessibility")?.removeAttribute("hidden");
+        editor.querySelector(".review-editor__accessibility-other")?.focus();
+        return;
+      }
+
+      if (key === "accessibility") {
+        editor.querySelector(".review-editor__other")?.classList.remove("is-open");
+        editor.querySelector(".review-editor__done--accessibility")?.setAttribute("hidden", "");
+      }
+
+      applyFieldEdit(key, input.value, listId);
+    });
+  });
+
+  editor.querySelector(".review-editor__done")?.addEventListener("click", () => {
+    if (key === "address") applyFieldAddress(item, listId);
+    else if (key === "accessibility") applyFieldAccessibility(item, listId);
+    else if (key === "name" || key === "phone") applyProfileTextField(item, key, listId);
+  });
+}
+
+function bindEditableList(listId, editAttr) {
+  const list = document.getElementById(listId);
+  if (!list || list.dataset.bound === "1") return;
+  list.dataset.bound = "1";
+  list.addEventListener("click", (e) => {
+    const editBtn = e.target.closest(`[${editAttr}]`);
+    if (!editBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const key = editBtn.getAttribute(editAttr);
+    toggleEditor(key, listId);
+  });
+}
+
+function bindReviewList() {
+  bindEditableList("review-list", "data-review-edit");
+}
+
+function bindProfileList() {
+  bindEditableList("profile-list", "data-profile-edit");
 }
 
 function updateActivateButton() {
@@ -773,32 +1202,725 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-function renderResult(data) {
-  const card = $("result-card");
-  const failSafe = data.fail_safe === true;
-  card.classList.toggle("is-failsafe", failSafe);
-  card.classList.remove("is-visible");
+function initials(name) {
+  const parts = String(name || "?").trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0]?.[0] || "?").toUpperCase();
+}
 
-  const badge = failSafe ? "Advisory mode" : data.applies_to_user === false ? "Not in affected area" : "Your guidance";
+function firstName(name) {
+  return String(name || "").trim().split(/\s+/)[0] || "there";
+}
+
+function buildFamilyMembers() {
+  const d = state.data;
+  const members = [
+    {
+      id: "user",
+      name: d.name || "You",
+      status: "Safe",
+      detail: shortAddress(d.address),
+      location: shortAddress(d.address),
+      dot: "safe",
+      mapX: 48,
+      mapY: 50,
+      isYou: true,
+    },
+  ];
+
+  const depCount = d.evacuating === "small" ? 2 : d.evacuating === "large" ? 3 : 0;
+  for (let i = 0; i < depCount; i++) {
+    const mock = DEPENDENT_MOCK_DETAILS[i] || DEPENDENT_MOCK_DETAILS[0];
+    members.push({
+      id: `dep-${i + 1}`,
+      name: mock.name,
+      status: mock.status,
+      detail: mock.location,
+      location: mock.location,
+      dot: mock.dot,
+      mapX: mock.mapX,
+      mapY: mock.mapY,
+      isYou: false,
+    });
+  }
+
+  state.invitedMembers.forEach((inv, i) => {
+    members.push({
+      id: `inv-${i}`,
+      name: inv.name,
+      phone: inv.phone,
+      status: "Invite pending",
+      detail: "Awaiting response",
+      location: "Location pending",
+      dot: "transit",
+      mapX: 20 + ((i * 12) % 40),
+      mapY: 30 + ((i * 15) % 35),
+      isYou: false,
+      invited: true,
+    });
+  });
+
+  return members;
+}
+
+function needsAttention() {
+  const d = state.data;
+  return (
+    (d.vulnerable && d.vulnerable !== "none") ||
+    (d.accessibility && d.accessibility !== "none") ||
+    d.evacuating === "small" ||
+    d.evacuating === "large"
+  );
+}
+
+function categorizeUpdate(alert) {
+  const text = `${alert.event} ${alert.text} ${alert.area}`.toLowerCase();
+  if (/flood|weather|rain|storm|wind/.test(text)) return "weather";
+  if (/road|highway|route|transit|traffic/.test(text)) return "roads";
+  return "safety";
+}
+
+function updateUrgencyScore(alert) {
+  const sev = String(alert.severity || "").toLowerCase();
+  const sevScore =
+    { extreme: 4, severe: 3, moderate: 2, minor: 1, info: 0, unknown: 0 }[sev] ?? 0;
+  const text = `${alert.event} ${alert.text}`.toLowerCase();
+  let keywordBoost = 0;
+  if (/mandatory|evacuat|emergency/.test(text)) keywordBoost += 3;
+  if (/warning/.test(text)) keywordBoost += 2;
+  if (/advisory/.test(text)) keywordBoost += 0.5;
+  const catBoost = categorizeUpdate(alert) === "safety" ? 1 : 0;
+  return sevScore * 10 + keywordBoost + catBoost;
+}
+
+function sortUpdatesByPriority(alerts) {
+  return alerts
+    .map((alert, index) => ({ alert, index, score: updateUrgencyScore(alert) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((item) => item.alert);
+}
+
+function updateTimeLabel(alert, allAlerts) {
+  const times = ["2m ago", "15m ago", "1h ago", "3h ago", "6h ago"];
+  const index = allAlerts.indexOf(alert);
+  return index >= 0 ? times[index] || "Recently" : "Recently";
+}
+
+function renderHomeGuidance(data) {
+  const el = $("home-guidance");
+  if (!el || !data) return;
+  const failSafe = data.fail_safe === true;
+  el.classList.toggle("is-failsafe", failSafe);
+  const badge = failSafe
+    ? "Advisory mode"
+    : data.applies_to_user === false
+      ? "Not in affected area"
+      : "Your guidance";
   const action = data.recommended_action || "No active guidance at this time.";
   const summary = data.authoritative_summary || "";
   const zone = data.zone ?? "—";
   const resolved = data.resolved?.address || state.data.address || "—";
-
-  card.innerHTML = `
-    <span class="result-card__badge">${escapeHtml(badge)}</span>
-    <p class="result-card__action">${escapeHtml(action)}</p>
-    ${summary ? `<p class="result-card__summary">${escapeHtml(summary)}</p>` : ""}
-    <dl class="result-card__meta">
-      <dt>Home</dt><dd>${escapeHtml(resolved)}</dd>
-      <dt>Zone</dt><dd>${escapeHtml(zone || "Unknown")}</dd>
-      ${data.destination ? `<dt>Shelter</dt><dd>${escapeHtml(data.destination)}</dd>` : ""}
-    </dl>
+  el.innerHTML = `
+    <span class="platform-guidance__badge">${escapeHtml(badge)}</span>
+    <p class="platform-guidance__action">${escapeHtml(action)}</p>
+    ${summary ? `<p class="platform-guidance__summary">${escapeHtml(summary)}</p>` : ""}
+    <p class="platform-guidance__meta">${escapeHtml(resolved)} · Zone ${escapeHtml(zone || "Unknown")}${data.destination ? ` · Shelter: ${escapeHtml(data.destination)}` : ""}</p>
   `;
+}
+
+function renderMapPins() {
+  const el = $("map-pins");
+  if (!el) return;
+  el.innerHTML = buildFamilyMembers()
+    .map(
+      (m) => `
+    <div class="map-pin map-pin--${m.dot}${m.isYou ? " map-pin--you" : ""}" style="left:${m.mapX}%;top:${m.mapY}%;" title="${escapeHtml(m.name)}">
+      <span class="map-pin__dot"></span>
+      <span class="map-pin__label">${escapeHtml(m.isYou ? "You" : m.name.split(" ")[0])}</span>
+      <span class="map-pin__status">${escapeHtml(m.status)}</span>
+    </div>`
+    )
+    .join("");
+}
+
+function renderFamilyScroll() {
+  const el = $("family-scroll");
+  if (!el) return;
+  el.innerHTML = buildFamilyMembers()
+    .map(
+      (m) => `
+    <div class="member-card">
+      <div class="member-card__avatar">
+        ${escapeHtml(initials(m.name))}
+        <span class="member-card__dot member-card__dot--${m.dot}"></span>
+      </div>
+      <span class="member-card__name">${escapeHtml(m.name.split(" ")[0])}</span>
+      <span class="member-card__status">${escapeHtml(m.status)}</span>
+    </div>`
+    )
+    .join("");
+}
+
+function renderHouseholdScroll() {
+  renderFamilyScroll();
+}
+
+function renderFamilyView() {
+  const sections = $("family-sections");
+  const subtitle = $("family-subtitle");
+  if (!sections) return;
+
+  const dependents = buildFamilyMembers().filter((m) => m.id !== "user");
+  const familyMembers = dependents.filter((m) => !m.invited);
+  const invited = dependents.filter((m) => m.invited);
+
+  if (subtitle) {
+    subtitle.textContent = familyMembers.length
+      ? `${familyMembers.length} family member${familyMembers.length === 1 ? "" : "s"}`
+      : invited.length
+        ? `${invited.length} invite${invited.length === 1 ? "" : "s"} pending`
+        : "No other family members on your profile";
+  }
+
+  let html = "";
+
+  const attention = familyMembers.filter((m) => m.dot === "warn");
+  if (attention.length && needsAttention()) {
+    html += `<section class="family-section"><h3 class="family-section__label family-section__label--attention"><span class="family-section__dot"></span>Attention required</h3>`;
+    attention.forEach((m) => {
+      html += familyCardHtml(m, "attention");
+    });
+    html += `</section>`;
+  }
+
+  const others = familyMembers.filter((m) => m.dot !== "warn" || !needsAttention());
+  const safeMembers = others.filter((m) => m.status === "Safe" || m.dot === "safe");
+  const remainingOthers = others.filter((m) => m.status !== "Safe" && m.dot !== "safe");
+
+  if (safeMembers.length) {
+    html += `<section class="family-section"><h3 class="family-section__label family-section__label--safe"><span class="family-section__dot"></span>Safe</h3>`;
+    safeMembers.forEach((m) => {
+      html += familyCardHtml(m, "safe");
+    });
+    html += `</section>`;
+  }
+
+  if (remainingOthers.length) {
+    const label = remainingOthers.some((m) => m.dot === "warn") ? "Attention required" : "Family";
+    const labelClass = remainingOthers.some((m) => m.dot === "warn") ? "attention" : "transit";
+    html += `<section class="family-section"><h3 class="family-section__label family-section__label--${labelClass}"><span class="family-section__dot"></span>${label}</h3>`;
+    remainingOthers.forEach((m) => {
+      html += familyCardHtml(m, m.dot === "warn" ? "attention" : "transit");
+    });
+    html += `</section>`;
+  }
+
+  if (invited.length) {
+    html += `<section class="family-section"><h3 class="family-section__label family-section__label--transit"><span class="family-section__dot"></span>Invited</h3>`;
+    invited.forEach((m) => {
+      html += familyCardHtml({ ...m, cardDetail: `${m.detail} · ${m.phone || "Invite sent"}` }, "transit", true);
+    });
+    html += `</section>`;
+  }
+
+  if (!html) {
+    html = `<p class="platform-page__subtitle">Add dependents during onboarding or invite family from Home.</p>`;
+  }
+
+  sections.innerHTML = html;
+}
+
+function familyCardDetail(member, variant) {
+  if (member.cardDetail) return member.cardDetail;
+  if (variant === "safe") return member.location;
+  return `${member.status} · ${member.location}`;
+}
+
+function familyCardHtml(member, variant, showActions = true) {
+  const name = member.name;
+  const detail = familyCardDetail(member, variant);
+  return `
+    <div class="family-card${variant === "attention" ? " family-card--attention" : ""}" data-member-id="${escapeHtml(member.id)}">
+      <div class="family-card__row">
+        <div class="family-card__avatar">${escapeHtml(initials(name))}</div>
+        <div class="family-card__info">
+          <p class="family-card__name">${escapeHtml(name)}</p>
+          <p class="family-card__detail">${escapeHtml(detail)}</p>
+        </div>
+      </div>
+      ${
+        showActions
+          ? `<div class="family-card__actions">
+        <button type="button" class="family-card__action" data-checkin-id="${escapeHtml(member.id)}"><span class="family-card__action-icon">📡</span>Check-in</button>
+        <button type="button" class="family-card__action" data-stub="call"><span class="family-card__action-icon">📞</span>Call</button>
+        <button type="button" class="family-card__action" data-stub="route"><span class="family-card__action-icon">📍</span>Route</button>
+      </div>`
+          : ""
+      }
+    </div>`;
+}
+
+function shortAddress(addr) {
+  if (!addr) return "Address on file";
+  const parts = addr.split(",");
+  return parts.slice(0, 2).join(",").trim() || addr;
+}
+
+function buildUpdatesHtml(alerts, filter, limit = null) {
+  let filtered =
+    filter === "all" ? [...alerts] : alerts.filter((a) => categorizeUpdate(a) === filter);
+  if (limit) {
+    filtered = sortUpdatesByPriority(filtered).slice(0, limit);
+  }
+
+  if (!filtered.length) {
+    return `<p class="platform-page__subtitle">No updates in this category.</p>`;
+  }
+
+  return filtered
+    .map(
+      (a) => `
+    <article class="update-card">
+      <div class="update-card__head">
+        <p class="update-card__source">${escapeHtml(a.source)}</p>
+        <span class="update-card__time">${updateTimeLabel(a, alerts)}</span>
+      </div>
+      <span class="update-card__badge">${escapeHtml(a.event)}</span>
+      <p class="update-card__text">${escapeHtml(a.text)}</p>
+      <p class="update-card__area">${escapeHtml(a.area)} · ${escapeHtml(a.severity)}</p>
+    </article>`
+    )
+    .join("");
+}
+
+function renderUpdatesFeed(alerts, targetId = "updates-feed", filter = state.updateFilter) {
+  const el = $(targetId);
+  if (!el) return;
+  el.innerHTML = buildUpdatesHtml(alerts, filter);
+}
+
+function renderHomeUpdatesPreview(alerts) {
+  const el = $("home-updates-feed");
+  if (!el) return;
+  el.innerHTML = buildUpdatesHtml(alerts, state.homeUpdateFilter, 2);
+}
+
+function buildRightNowPrepItems() {
+  const d = state.data;
+  const items = [
+    { id: "now-evac", label: "Follow your evacuation guidance", detail: "Check the instruction card below", urgent: true },
+    { id: "now-go-bag", label: "Grab your go-bag", detail: "Water, meds, documents, chargers", urgent: true },
+  ];
+
+  if (d.vehicle_access === "no") {
+    items.push({ id: "now-transit", label: "Confirm transit or pickup plan", detail: "No vehicle — use county transit or meet at pickup point", urgent: true });
+  } else {
+    items.push({ id: "now-vehicle", label: "Stage your vehicle", detail: "Keys, fuel, and an open evacuation route", urgent: true });
+  }
+
+  if (d.evacuating === "small" || d.evacuating === "large") {
+    items.push({ id: "now-pickup", label: "Coordinate dependent pickup", detail: DISPLAY.evacuating[d.evacuating], urgent: true });
+  }
+
+  if (d.animals && d.animals !== "none") {
+    items.push({ id: "now-pets", label: "Secure pets for evacuation", detail: DISPLAY.animals[d.animals], urgent: true });
+  }
+
+  if (d.vulnerable && d.vulnerable !== "none") {
+    items.push({ id: "now-vulnerable", label: "Assist vulnerable family members", detail: DISPLAY.vulnerable[d.vulnerable], urgent: true });
+  }
+
+  if (d.accessibility && d.accessibility !== "none") {
+    const acc =
+      d.accessibility === "other"
+        ? d.accessibility_other || "Other needs"
+        : DISPLAY.accessibility[d.accessibility];
+    items.push({ id: "now-access", label: "Confirm accessibility plan", detail: acc, urgent: true });
+  }
+
+  items.push({ id: "now-checkin", label: "Send a family check-in", detail: "Check in with one person or your whole family from Home", urgent: false });
+  return items;
+}
+
+function buildLongtermPrepItems() {
+  return [
+    { id: "lt-gobag", label: "Pack a go-bag", detail: "Keep it ready by the door" },
+    { id: "lt-meeting", label: "Agree on a meeting point", detail: "Outside your zone, easy for everyone to reach" },
+    { id: "lt-contacts", label: "Save emergency contacts", detail: "Include out-of-area contacts" },
+    { id: "lt-drill", label: "Practice your evacuation drill", detail: "Walk through routes with your family once a year" },
+    { id: "lt-alerts", label: "Sign up for county alerts", detail: "Maui County emergency notifications" },
+  ];
+}
+
+function renderPrepListSection(listId, items, sectionPrefix) {
+  const el = $(listId);
+  if (!el) return;
+  el.innerHTML = items
+    .map((item) => {
+      const checked = state.prepChecked[item.id] ? "checked" : "";
+      return `
+    <li class="prep-item${item.urgent ? " prep-item--urgent" : ""}">
+      <input type="checkbox" class="prep-item__check" data-prep-id="${item.id}" ${checked} aria-label="${escapeHtml(item.label)}">
+      <div class="prep-item__text">${escapeHtml(item.label)}<small>${escapeHtml(item.detail || "")}</small></div>
+    </li>`;
+    })
+    .join("");
+
+  el.querySelectorAll(".prep-item__check").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      state.prepChecked[cb.dataset.prepId] = cb.checked;
+    });
+  });
+}
+
+function renderPrepList() {
+  renderPrepListSection("prep-now-list", buildRightNowPrepItems(), "now");
+  renderPrepListSection("prep-longterm-list", buildLongtermPrepItems(), "lt");
+}
+
+function renderProfileSheet() {
+  const list = $("profile-list");
+  if (!list) return;
+  openEditorKey = null;
+  openEditorListId = null;
+  reviewAddressSelection = null;
+  list.innerHTML = PROFILE_KEYS.map(({ key, label, readonly }, i) => {
+    const value = displayValue(key);
+    const editBtn = readonly
+      ? ""
+      : `<button type="button" class="review-item__edit" data-profile-edit="${key}" aria-label="Edit ${escapeHtml(label)}">Edit</button>`;
+    const rowClass = readonly ? " review-item--readonly" : "";
+    return `<li class="review-item${rowClass}" data-review-key="${key}" style="--i: ${i}">
+      <div class="review-item__main">
+        <div class="review-item__label review-item__label--static">
+          <span class="review-item__content">
+            <span class="review-item__title">${escapeHtml(label)}</span>
+            <span class="review-item__value">${escapeHtml(value)}</span>
+          </span>
+        </div>
+        ${editBtn}
+      </div>
+      <div class="review-item__editor" hidden></div>
+    </li>`;
+  }).join("");
+}
+
+function openOverlay(id) {
+  const el = $(id);
+  if (!el) return;
+  el.removeAttribute("hidden");
+  el.classList.remove("is-open");
+  void el.offsetHeight;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => el.classList.add("is-open"));
+  });
+}
+
+function closeOverlay(id) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.remove("is-open");
+  const delay = prefersReducedMotion() ? 0 : 220;
+  setTimeout(() => {
+    el.setAttribute("hidden", "");
+  }, delay);
+}
+
+function openProfileSheet() {
+  renderProfileSheet();
+  openOverlay("profile-overlay");
+}
+
+function openInviteSheet() {
+  const hint = $("invite-hint");
+  if (hint) {
+    hint.textContent = "";
+    hint.classList.remove("is-error");
+  }
+  $("invite-name").value = "";
+  $("invite-phone").value = "";
+  openOverlay("invite-overlay");
+}
+
+function getCheckinTargets() {
+  return buildFamilyMembers().filter((m) => !m.isYou);
+}
+
+function updateCheckinSendButton() {
+  const btn = $("btn-send-checkin");
+  if (!btn) return;
+  const any = document.querySelector(".checkin-picker__check:checked");
+  btn.disabled = !any;
+}
+
+function renderBroadcastMemberPicker(selectedIds) {
+  const members = getCheckinTargets();
+  const picker = $("broadcast-member-picker");
+  const btn = $("btn-send-checkin");
+  if (!picker) return;
+
+  if (!members.length) {
+    picker.innerHTML =
+      '<p class="checkin-picker__empty">No family members to check in with yet. Add dependents or invite someone from Home.</p>';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  const selected = new Set(selectedIds ?? members.map((m) => m.id));
+
+  picker.innerHTML = `
+    <div class="checkin-picker__toolbar">
+      <span class="checkin-picker__label-text">Send to</span>
+      <button type="button" class="home-section__link" id="btn-checkin-select-all">Everyone</button>
+      <button type="button" class="home-section__link" id="btn-checkin-select-none">Clear</button>
+    </div>
+    <ul class="checkin-picker" role="list">
+      ${members
+        .map(
+          (m) => `<li class="checkin-picker__item">
+        <label class="checkin-picker__row">
+          <input type="checkbox" class="checkin-picker__check" data-checkin-target="${escapeHtml(m.id)}"${selected.has(m.id) ? " checked" : ""}>
+          <span class="checkin-picker__avatar">${escapeHtml(initials(m.name))}</span>
+          <span class="checkin-picker__info">
+            <span class="checkin-picker__name">${escapeHtml(m.name)}</span>
+            <span class="checkin-picker__meta">${escapeHtml(m.status)}${m.phone ? ` · ${escapeHtml(m.phone)}` : m.location ? ` · ${escapeHtml(shortAddress(m.location))}` : ""}</span>
+          </span>
+        </label>
+      </li>`
+        )
+        .join("")}
+    </ul>`;
+
+  picker.querySelectorAll(".checkin-picker__check").forEach((cb) => {
+    cb.addEventListener("change", updateCheckinSendButton);
+  });
+
+  $("btn-checkin-select-all")?.addEventListener("click", () => {
+    picker.querySelectorAll(".checkin-picker__check").forEach((cb) => {
+      cb.checked = true;
+    });
+    updateCheckinSendButton();
+  });
+
+  $("btn-checkin-select-none")?.addEventListener("click", () => {
+    picker.querySelectorAll(".checkin-picker__check").forEach((cb) => {
+      cb.checked = false;
+    });
+    updateCheckinSendButton();
+  });
+
+  updateCheckinSendButton();
+}
+
+function openBroadcastSheet(memberId = null) {
+  const subtitle = $("broadcast-sheet-subtitle");
+  const title = $("broadcast-sheet-title");
+  const members = getCheckinTargets();
+
+  if (title) {
+    title.textContent = memberId ? "Check in" : "Family check-in";
+  }
+  if (subtitle) {
+    subtitle.textContent = memberId
+      ? `Send a safety check to ${members.find((m) => m.id === memberId)?.name?.split(" ")[0] || "this family member"}.`
+      : "Choose who to check in with — you don't have to ping everyone.";
+  }
+
+  const selected = memberId ? [memberId] : members.map((m) => m.id);
+  renderBroadcastMemberPicker(selected);
+
+  const hint = $("broadcast-hint");
+  if (hint) {
+    hint.textContent = "";
+    hint.classList.remove("is-error");
+  }
+  openOverlay("broadcast-overlay");
+}
+
+function sendCheckin() {
+  const checked = [...document.querySelectorAll(".checkin-picker__check:checked")];
+  const hint = $("broadcast-hint");
+  if (!checked.length) {
+    if (hint) {
+      hint.textContent = "Select at least one family member.";
+      hint.classList.add("is-error");
+    }
+    return;
+  }
+
+  const names = checked
+    .map((cb) => getCheckinTargets().find((m) => m.id === cb.dataset.checkinTarget)?.name.split(" ")[0])
+    .filter(Boolean);
+
+  if (hint) {
+    hint.textContent =
+      names.length === 1
+        ? `Check-in sent to ${names[0]} (demo).`
+        : `Check-in sent to ${names.join(", ")} (demo).`;
+    hint.classList.remove("is-error");
+  }
+  setTimeout(() => closeOverlay("broadcast-overlay"), 1200);
+}
+
+async function loadUpdates() {
+  let alerts = state.cachedAlerts;
+  try {
+    const res = await fetch("/api/updates");
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    alerts = Array.isArray(data) ? data : [];
+  } catch {
+    alerts = [
+      {
+        source: "County civil defense",
+        event: "Flash Flood Warning",
+        area: "West Maui, Lahaina",
+        severity: "Severe",
+        text: "Evacuate low-lying areas immediately. Proceed to higher ground.",
+      },
+      {
+        source: "Wireless Emergency Alert",
+        event: "Road Advisory",
+        area: "Lahaina",
+        severity: "Moderate",
+        text: "Avoid Honoapiilani Highway, flooding reported.",
+      },
+      {
+        source: "Maui Fire Department",
+        event: "Shelter Open",
+        area: "Central Maui",
+        severity: "Info",
+        text: "War Memorial Gym accepting evacuees. Bring ID and medications.",
+      },
+    ];
+  }
+  state.cachedAlerts = alerts;
+  renderUpdatesFeed(alerts, "updates-feed", state.updateFilter);
+  renderHomeUpdatesPreview(alerts);
+}
+
+function renderPlatform() {
+  const d = state.data;
+  const greeting = $("platform-greeting");
+  const avatar = $("platform-avatar");
+
+  if (greeting) greeting.textContent = `Hi, ${firstName(d.name)}`;
+  if (avatar) avatar.textContent = initials(d.name);
+
+  renderMapPins();
+  renderFamilyScroll();
+  renderHomeGuidance(state.guidance);
+  renderFamilyView();
+  renderPrepList();
+  loadUpdates();
+}
+
+function switchPlatformTab(tab) {
+  state.platformTab = tab;
+  document.querySelectorAll(".platform-nav__item").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.platformTab === tab);
+  });
+  document.querySelectorAll(".platform-view").forEach((view) => {
+    const active = view.dataset.platformView === tab;
+    view.classList.toggle("is-active", active);
+    view.hidden = !active;
+  });
+}
+
+function skipOnboardingDev() {
+  state.step = 10;
+  state.selectedAddress = {
+    address: "671 Front St, Lahaina, HI 96761",
+    lat: 20.8783,
+    lng: -156.6797,
+  };
+  state.data = {
+    name: "Alex",
+    phone: "+1 (808) 555-0142",
+    birth_date: "1990-06-15",
+    age: 35,
+    address: state.selectedAddress.address,
+    vehicle_access: "yes",
+    vehicle_count: "1",
+    evacuating: "small",
+    vulnerable: "none",
+    accessibility: "none",
+    animals: "pets",
+  };
+
+  enterPlatform({
+    resolved: {
+      address: state.data.address,
+      lat: state.selectedAddress.lat,
+      lng: state.selectedAddress.lng,
+    },
+    zone: "Lahaina-1",
+    authoritative_summary: "Flash Flood Warning — follow official county guidance.",
+    applies_to_user: true,
+    recommended_action: "Evacuate now via official routes. Take your family and go-bag.",
+    destination: "Lahaina Civic Center",
+    how_to_get_there: "Drive on designated evacuation routes. Do not use unmarked shortcuts.",
+    confidence: 0.75,
+    fail_safe: false,
+    reasoning: "Dev skip — demo guidance.",
+  });
+}
+
+function shouldAutoSkipOnboarding() {
+  const params = new URLSearchParams(window.location.search);
+  return params.has("skip") || params.get("dev") === "1";
+}
+
+async function enterPlatform(guidance) {
+  state.guidance = guidance;
+
+  document.querySelectorAll(".step").forEach((s) => {
+    s.classList.remove("is-active", "is-leaving", "is-entering", "is-animating");
+  });
+  $("progress-label").textContent = "";
+
+  const app = $("app");
+  const platform = $("platform");
+  if (app) app.classList.add("platform-mode");
+  if (platform) {
+    platform.hidden = false;
+    renderPlatform();
+    switchPlatformTab("home");
+    if (prefersReducedMotion()) {
+      platform.classList.add("is-active");
+    } else {
+      platform.classList.remove("is-active");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => platform.classList.add("is-active"));
+      });
+    }
+  }
+}
+
+function exitPlatform() {
+  const app = $("app");
+  const platform = $("platform");
+  if (app) app.classList.remove("platform-mode");
+  if (platform) {
+    platform.classList.remove("is-active");
+    platform.hidden = true;
+  }
+  state.guidance = null;
+  state.platformTab = "home";
+}
+
+function setActivateHint(msg, isError = false) {
+  const el = $("activate-hint");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("is-error", isError);
 }
 
 async function fetchGuidance() {
   const btn = $("btn-activate");
+  if (!btn || btn.disabled) return;
+
+  setActivateHint("");
   btn.classList.add("btn--loading");
   btn.disabled = true;
   btn.textContent = "Activating";
@@ -813,37 +1935,51 @@ async function fetchGuidance() {
     }
   }
 
+  const resetBtn = () => {
+    btn.classList.remove("btn--loading");
+    btn.textContent = "Activate Profile";
+    updateActivateButton();
+  };
+
   try {
     const res = await fetch("/api/advise", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || "Something went wrong. Please try again.");
-      btn.classList.remove("btn--loading");
-      btn.disabled = false;
-      btn.textContent = "Activate Profile";
-      updateActivateButton();
+
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      setActivateHint("Server returned an unexpected response. Restart the dev server and try again.", true);
+      resetBtn();
       return;
     }
-    renderResult(data);
-    goToStep(11);
+
+    if (!res.ok) {
+      setActivateHint(data.error || "Something went wrong. Please try again.", true);
+      resetBtn();
+      return;
+    }
+
+    resetBtn();
+    await enterPlatform(data);
   } catch {
-    alert("Request failed. Check your connection.");
-    btn.classList.remove("btn--loading");
-    btn.disabled = false;
-    btn.textContent = "Activate Profile";
-    updateActivateButton();
+    setActivateHint("Request failed. Check your connection and that the server is running.", true);
+    resetBtn();
   }
 }
 
 function resetForm() {
   isTransitioning = false;
+  exitPlatform();
   state.selectedAddress = null;
   state.data = {};
   state.step = 0;
+  state.invitedMembers = [];
+  state.prepChecked = {};
+  state.cachedAlerts = [];
 
   $("name").value = "";
   $("phone").value = "";
@@ -856,9 +1992,9 @@ function resetForm() {
 
   const reviewList = $("review-list");
   if (reviewList) reviewList.classList.remove("is-visible");
-
-  const resultCard = $("result-card");
-  if (resultCard) resultCard.classList.remove("is-visible");
+  openEditorKey = null;
+  openEditorListId = null;
+  reviewAddressSelection = null;
 
   const slot = $("addr-slot");
   slot.dataset.initialized = "";
@@ -872,6 +2008,7 @@ function resetForm() {
 
   setHint("");
   setPhoneHint("");
+  setActivateHint("");
   resetDobPicker();
   document.querySelectorAll(".step").forEach((s) => {
     s.classList.remove("is-active", "is-leaving", "is-entering", "is-animating");
@@ -894,13 +2031,92 @@ function bindAccessibilityOther() {
   });
 }
 
+function bindPlatform() {
+  document.querySelectorAll(".platform-nav__item").forEach((btn) => {
+    btn.addEventListener("click", () => switchPlatformTab(btn.dataset.platformTab));
+  });
+
+  $("platform-avatar")?.addEventListener("click", openProfileSheet);
+  $("btn-close-profile")?.addEventListener("click", () => closeOverlay("profile-overlay"));
+  $("profile-overlay")?.addEventListener("click", (e) => {
+    if (e.target.id === "profile-overlay") closeOverlay("profile-overlay");
+  });
+
+  $("btn-invite-family")?.addEventListener("click", openInviteSheet);
+  $("btn-invite-family-tab")?.addEventListener("click", openInviteSheet);
+  $("btn-close-invite")?.addEventListener("click", () => closeOverlay("invite-overlay"));
+  $("invite-overlay")?.addEventListener("click", (e) => {
+    if (e.target.id === "invite-overlay") closeOverlay("invite-overlay");
+  });
+
+  $("invite-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("invite-name").value.trim();
+    const phone = $("invite-phone").value.trim();
+    const hint = $("invite-hint");
+    if (!name) {
+      $("invite-name").focus();
+      return;
+    }
+    if (!isPhoneComplete(phone)) {
+      hint.textContent = "Enter a complete 10-digit US mobile number.";
+      hint.classList.add("is-error");
+      return;
+    }
+    state.invitedMembers.push({ name, phone: formatPhoneDisplay(phone) });
+    closeOverlay("invite-overlay");
+    refreshPlatformAfterProfileEdit();
+  });
+
+  $("btn-broadcast")?.addEventListener("click", () => openBroadcastSheet());
+  $("btn-close-broadcast")?.addEventListener("click", () => closeOverlay("broadcast-overlay"));
+  $("broadcast-overlay")?.addEventListener("click", (e) => {
+    if (e.target.id === "broadcast-overlay") closeOverlay("broadcast-overlay");
+  });
+  $("btn-send-checkin")?.addEventListener("click", sendCheckin);
+
+  $("btn-see-all-updates")?.addEventListener("click", () => switchPlatformTab("updates"));
+
+  document.querySelectorAll("#update-pills .platform-pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      state.updateFilter = pill.dataset.filter;
+      document.querySelectorAll("#update-pills .platform-pill").forEach((p) => {
+        p.classList.toggle("is-active", p === pill);
+      });
+      renderUpdatesFeed(state.cachedAlerts, "updates-feed", state.updateFilter);
+    });
+  });
+
+  document.querySelectorAll("#home-update-pills .platform-pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      state.homeUpdateFilter = pill.dataset.filter;
+      document.querySelectorAll("#home-update-pills .platform-pill").forEach((p) => {
+        p.classList.toggle("is-active", p === pill);
+      });
+      renderHomeUpdatesPreview(state.cachedAlerts);
+    });
+  });
+
+  $("family-sections")?.addEventListener("click", (e) => {
+    const checkinBtn = e.target.closest("[data-checkin-id]");
+    if (checkinBtn) {
+      e.preventDefault();
+      openBroadcastSheet(checkinBtn.dataset.checkinId);
+      return;
+    }
+    const btn = e.target.closest("[data-stub]");
+    if (!btn) return;
+    alert(`${btn.dataset.stub.charAt(0).toUpperCase() + btn.dataset.stub.slice(1)} is not available in this demo.`);
+  });
+}
+
 function bindEvents() {
   $("btn-welcome").addEventListener("click", () => goToStep(1));
+  $("btn-skip-dev")?.addEventListener("click", skipOnboardingDev);
   $("btn-contact-next").addEventListener("click", goNext);
   $("btn-q1-next").addEventListener("click", goNext);
   $("btn-q7-next").addEventListener("click", goNext);
   $("btn-activate").addEventListener("click", fetchGuidance);
-  $("btn-restart").addEventListener("click", resetForm);
 
   document.querySelectorAll("[data-next]").forEach((btn) => {
     btn.addEventListener("click", goNext);
@@ -920,8 +2136,12 @@ function bindEvents() {
 
 document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
+  bindPlatform();
   bindPhoneInput();
   bindDobPicker();
   bindAccessibilityOther();
+  bindReviewList();
+  bindProfileList();
   updateProgressLabel();
+  if (shouldAutoSkipOnboarding()) skipOnboardingDev();
 });

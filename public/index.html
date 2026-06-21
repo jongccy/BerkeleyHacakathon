@@ -22,13 +22,14 @@
         </div>
       </div>
       <div class="step__body">
-        <h1 class="step__title">Guidance that fits your household</h1>
+        <h1 class="step__title">Guidance that fits your family</h1>
         <p class="step__subtitle">
           When official alerts conflict, we turn them into one calm, personalized instruction.
         </p>
       </div>
       <div class="step__actions">
         <button type="button" id="btn-welcome" class="btn btn--primary">Get started</button>
+        <button type="button" id="btn-skip-dev" class="btn btn--ghost btn--dev-skip">Skip to app (dev)</button>
       </div>
     </section>
 
@@ -130,7 +131,7 @@
       <div class="step__visual"><div class="halo halo--sm" aria-hidden="true"><div class="halo__ring"></div><div class="halo__ring halo__ring--inner"></div><div class="halo__particles"></div></div></div>
       <div class="step__body">
         <p class="step__counter" data-counter>Question 3 of 7</p>
-        <h2 class="step__title">How many operational vehicles are available to your household?</h2>
+        <h2 class="step__title">How many operational vehicles are available to your family?</h2>
         <div class="step__form">
           <div class="choices" role="radiogroup" aria-label="Vehicle count">
             <label class="choice"><input type="radio" name="vehicle_count" value="1"><span>1 vehicle</span></label>
@@ -240,8 +241,9 @@
     <section class="step" data-step="10">
       <div class="step__body step__body--scroll">
         <h2 class="step__title">Please review and verify your emergency profile</h2>
-        <p class="step__subtitle">Confirm each item below to activate your profile.</p>
+        <p class="step__subtitle">Confirm each item below to activate your profile. Hover any row to edit it here.</p>
         <ul id="review-list" class="review-list"></ul>
+        <p id="activate-hint" class="hint" aria-live="polite"></p>
       </div>
       <div class="step__actions">
         <button type="button" id="btn-activate" class="btn btn--primary" disabled>Activate Profile</button>
@@ -249,19 +251,190 @@
       </div>
     </section>
 
-    <!-- Result -->
-    <section class="step" data-step="11">
-      <div class="step__body step__body--scroll">
-        <h2 class="step__title">Your guidance</h2>
-        <p class="step__subtitle">Based on current alerts and your profile.</p>
-        <div id="result-card" class="result-card"></div>
-      </div>
-      <div class="step__actions">
-        <button type="button" id="btn-restart" class="btn btn--primary">Start over</button>
-      </div>
-    </section>
+    <!-- Result step removed — platform loads after activation -->
 
     <p id="progress-label" class="progress-label" aria-live="polite"></p>
+
+    <!-- Main platform (post-onboarding) -->
+    <div id="platform" class="platform" hidden>
+      <header class="platform-header">
+        <div class="platform-header__brand">
+          <span class="platform-header__mark" aria-hidden="true"></span>
+          <h1 class="platform-header__title" id="platform-greeting">Family</h1>
+        </div>
+        <div class="platform-header__actions">
+          <button type="button" class="platform-avatar" id="platform-avatar" aria-label="Open profile">?</button>
+        </div>
+      </header>
+
+      <main class="platform-main">
+        <!-- Home -->
+        <div class="platform-view is-active" data-platform-view="home">
+          <div class="home-scroll">
+            <section class="platform-map" aria-label="Family map">
+              <div class="platform-map__bg"></div>
+              <div class="platform-map__pins" id="map-pins"></div>
+            </section>
+
+            <section class="home-section">
+              <div class="home-section__head">
+                <h2 class="home-section__title">Family</h2>
+                <button type="button" class="home-section__link" id="btn-invite-family">Invite</button>
+              </div>
+              <div class="platform-scroll" id="family-scroll"></div>
+            </section>
+
+            <section class="home-section home-section--actions">
+              <div class="platform-actions">
+                <a class="platform-action-card" href="tel:911">
+                  <span class="platform-action-card__icon">📞</span>
+                  <span class="platform-action-card__text"><strong>Emergency</strong><span>Call 911</span></span>
+                </a>
+                <button type="button" class="platform-action-card" id="btn-broadcast">
+                  <span class="platform-action-card__icon">📡</span>
+                  <span class="platform-action-card__text"><strong>Check-in</strong><span>Ping family</span></span>
+                </button>
+              </div>
+            </section>
+
+            <section class="home-section">
+              <div class="home-section__head">
+                <h2 class="home-section__title">Latest updates</h2>
+                <button type="button" class="home-section__link" id="btn-see-all-updates">See all</button>
+              </div>
+              <div class="platform-pills" role="tablist" id="home-update-pills">
+                <button type="button" class="platform-pill" data-filter="weather" data-home-pill>Weather</button>
+                <button type="button" class="platform-pill" data-filter="roads" data-home-pill>Roads</button>
+                <button type="button" class="platform-pill" data-filter="safety" data-home-pill>Safety</button>
+                <button type="button" class="platform-pill is-active" data-filter="all" data-home-pill>All</button>
+              </div>
+              <div class="updates-feed updates-feed--preview" id="home-updates-feed"></div>
+            </section>
+
+            <section class="home-section">
+              <div class="platform-guidance" id="home-guidance"></div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Family -->
+        <div class="platform-view" data-platform-view="family" hidden>
+          <div class="platform-page">
+            <div class="home-section__head">
+              <h2 class="platform-page__title">Family status</h2>
+              <button type="button" class="home-section__link" id="btn-invite-family-tab">Invite</button>
+            </div>
+            <p class="platform-page__subtitle" id="family-subtitle"></p>
+            <div id="family-sections"></div>
+          </div>
+        </div>
+
+        <!-- Prep -->
+        <div class="platform-view" data-platform-view="prep" hidden>
+          <div class="platform-page">
+            <h2 class="platform-page__title">Preparedness</h2>
+            <p class="platform-page__subtitle">What to do now and how to stay ready</p>
+            <section class="prep-section">
+              <h3 class="prep-section__title">Right now</h3>
+              <p class="prep-section__subtitle">Personalized for your family</p>
+              <ul class="prep-list" id="prep-now-list"></ul>
+            </section>
+            <section class="prep-section">
+              <h3 class="prep-section__title">Longer-term</h3>
+              <p class="prep-section__subtitle">Build resilience before the next event</p>
+              <ul class="prep-list" id="prep-longterm-list"></ul>
+            </section>
+          </div>
+        </div>
+
+        <!-- Updates -->
+        <div class="platform-view" data-platform-view="updates" hidden>
+          <div class="platform-page">
+            <h2 class="platform-page__title">Live updates</h2>
+            <p class="platform-page__subtitle platform-page__subtitle--live"><span class="platform-live-dot"></span> Active coverage for your region</p>
+            <div class="platform-pills" role="tablist" id="update-pills">
+              <button type="button" class="platform-pill" data-filter="weather">Weather</button>
+              <button type="button" class="platform-pill" data-filter="roads">Roads</button>
+              <button type="button" class="platform-pill" data-filter="safety">Safety</button>
+              <button type="button" class="platform-pill is-active" data-filter="all">All</button>
+            </div>
+            <div class="updates-feed" id="updates-feed"></div>
+          </div>
+        </div>
+      </main>
+
+      <nav class="platform-nav" aria-label="Main">
+        <button type="button" class="platform-nav__item is-active" data-platform-tab="home">
+          <span class="platform-nav__icon" aria-hidden="true">⌂</span>
+          <span>Home</span>
+        </button>
+        <button type="button" class="platform-nav__item" data-platform-tab="family">
+          <span class="platform-nav__icon" aria-hidden="true">👥</span>
+          <span>Family</span>
+        </button>
+        <button type="button" class="platform-nav__item" data-platform-tab="prep">
+          <span class="platform-nav__icon" aria-hidden="true">✓</span>
+          <span>Prep</span>
+        </button>
+        <button type="button" class="platform-nav__item" data-platform-tab="updates">
+          <span class="platform-nav__icon" aria-hidden="true">🔔</span>
+          <span>Updates</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Platform overlays (outside #platform so transforms don't trap them) -->
+    <div class="platform-overlay" id="profile-overlay" hidden>
+      <div class="platform-sheet-modal" role="dialog" aria-labelledby="profile-sheet-title" aria-modal="true">
+        <div class="platform-sheet-modal__head">
+          <h2 class="platform-sheet-modal__title" id="profile-sheet-title">Your profile</h2>
+          <button type="button" class="platform-sheet-modal__close" id="btn-close-profile" aria-label="Close">×</button>
+        </div>
+        <p class="platform-sheet-modal__subtitle">Tap Edit to update any detail from onboarding.</p>
+        <div class="platform-sheet-modal__body">
+          <ul id="profile-list" class="review-list profile-list is-visible"></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="platform-overlay" id="invite-overlay" hidden>
+      <div class="platform-sheet-modal platform-sheet-modal--sm" role="dialog" aria-labelledby="invite-sheet-title" aria-modal="true">
+        <div class="platform-sheet-modal__head">
+          <h2 class="platform-sheet-modal__title" id="invite-sheet-title">Invite to family</h2>
+          <button type="button" class="platform-sheet-modal__close" id="btn-close-invite" aria-label="Close">×</button>
+        </div>
+        <p class="platform-sheet-modal__subtitle">They'll receive a text to join your family group (demo).</p>
+        <form id="invite-form" class="invite-form">
+          <div class="field">
+            <label for="invite-name">Name</label>
+            <input id="invite-name" type="text" placeholder="First name" autocomplete="name">
+          </div>
+          <div class="field">
+            <label for="invite-phone">Mobile number</label>
+            <input id="invite-phone" type="tel" inputmode="tel" placeholder="+1 (555) 000-0000" autocomplete="tel">
+          </div>
+          <p id="invite-hint" class="hint"></p>
+          <button type="submit" class="btn btn--primary">Send invite</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="platform-overlay" id="broadcast-overlay" hidden>
+      <div class="platform-sheet-modal platform-sheet-modal--sm" role="dialog" aria-labelledby="broadcast-sheet-title" aria-modal="true">
+        <div class="platform-sheet-modal__head">
+          <h2 class="platform-sheet-modal__title" id="broadcast-sheet-title">Family check-in</h2>
+          <button type="button" class="platform-sheet-modal__close" id="btn-close-broadcast" aria-label="Close">×</button>
+        </div>
+        <p class="platform-sheet-modal__subtitle" id="broadcast-sheet-subtitle">Choose who to check in with, or select everyone.</p>
+        <div class="broadcast-preview">
+          <p class="broadcast-preview__label">Message</p>
+          <p class="broadcast-preview__text" id="broadcast-message">Are you safe? Reply YES or share your location.</p>
+        </div>
+        <div id="broadcast-member-picker" class="checkin-picker-wrap"></div>
+        <button type="button" class="btn btn--primary" id="btn-send-checkin">Send check-in</button>
+        <p id="broadcast-hint" class="hint"></p>
+      </div>
+    </div>
   </div>
 
   <script src="/app.js" defer></script>
