@@ -24,23 +24,33 @@ const shelters = JSON.parse(readFileSync("data/shelters.json", "utf8"));
 // arms a simulated Lahaina flood; the next poll then trips and Poke alerts you.
 let demoArmed = false;
 
-// When armed, Browserbase scrapes a real past Maui flood event (demoFloodAlerts).
-// Cache the scrape so we hit Browserbase once per arming — not on every 2-min poll —
-// while still giving a genuine live session (replay) the first time. Cleared on
-// every arm/disarm so each fresh arming re-scrapes. Falls back to mockAlerts so the
-// demo can never break if the scrape returns nothing.
-let demoAlertsCache: { at: number; alerts: any[] } | null = null;
-const DEMO_CACHE_MS = 10 * 60 * 1000;
+// When armed, Browserbase discovers + reads the top news articles for the event
+// (demoFloodAlerts -> discoverAlerts). That takes minutes, so we run it in the
+// BACKGROUND on arming and cache the result — the tool calls (which Poke awaits)
+// never block on the scrape. Polls before discovery finishes report quiet; the
+// first poll after it completes surfaces the threat. Falls back to mockAlerts so
+// the demo can never come up empty.
+let demoAlertsCache: any[] | null = null;
+let demoDiscoveryInFlight = false;
 
-async function getDemoAlerts(): Promise<any[]> {
-  if (demoAlertsCache && Date.now() - demoAlertsCache.at < DEMO_CACHE_MS) return demoAlertsCache.alerts;
-  let alerts = await demoFloodAlerts();
-  if (!alerts.length) {
-    console.warn("[demo] Browserbase scrape returned nothing — falling back to seeded mockAlerts.");
-    alerts = mockAlerts();
-  }
-  demoAlertsCache = { at: Date.now(), alerts };
-  return alerts;
+function startDemoDiscovery() {
+  if (demoDiscoveryInFlight || demoAlertsCache) return;
+  demoDiscoveryInFlight = true;
+  console.log("[demo] background discovery started — Browserbase searching Google News and reading the top articles...");
+  demoFloodAlerts()
+    .then((alerts) => {
+      if (!alerts.length) {
+        console.warn("[demo] discovery empty — falling back to seeded mockAlerts.");
+        alerts = mockAlerts();
+      }
+      demoAlertsCache = alerts;
+      console.log(`[demo] discovery complete: ${alerts.length} alerts cached.`);
+    })
+    .catch((e) => {
+      console.error("[demo] discovery failed:", (e as Error).message);
+      demoAlertsCache = mockAlerts();
+    })
+    .finally(() => { demoDiscoveryInFlight = false; });
 }
 
 // What counts as an evacuation-relevant threat. Deliberately trips on warning/
@@ -135,15 +145,24 @@ function buildServer() {
       const zone = zoneForPoint(geo.lng, geo.lat);
 
       // Live sources only — NO scenario fallback, so "quiet" reads as quiet.
-      // When armed, Browserbase scrapes a real past Maui flood event (cached per arming).
+      // When armed, use the background-discovered alerts (Browserbase reads the top
+      // news articles for the event). While discovery is still running, report quiet.
       let alerts: any[];
       if (demoArmed) {
-        alerts = await getDemoAlerts();
+        if (!demoAlertsCache) {
+          startDemoDiscovery();   // idempotent; begins gathering if not already
+          return { content: [{ type: "text", text: JSON.stringify({ status: "no_active_threat", zone, demo_armed: true, note: "Demo armed — Browserbase is searching Google News and reading the top reports. The next check will surface the threat." }) }] };
+        }
+        alerts = demoAlertsCache;
       } else {
         const [nws, scraped] = [await nwsAlerts(), await mauiScrapedAlerts()];
         alerts = [...nws, ...scraped];
       }
 
+      // isThreat decides IF there's an active emergency. But once one is detected we
+      // reconcile over the FULL scraped set — so conflicting notices (evacuate vs
+      // shelter-in-place), road closures, and shelter locations all inform the
+      // personalized guidance. That conflict-resolution is the core of the pitch.
       const threats = alerts.filter(isThreat);
       if (!threats.length) {
         return { content: [{ type: "text", text: JSON.stringify({ status: "no_active_threat", zone, checked: alerts.length, demo_armed: demoArmed }) }] };
@@ -154,9 +173,9 @@ function buildServer() {
         household_size, has_car: has_car ? 1 : 0,
         mobility_needs, pets: pets ? 1 : 0, language: "en"
       };
-      const result = await reconcile(profile, threats, shelters, zone);
+      const result = await reconcile(profile, alerts, shelters, zone);
       return {
-        content: [{ type: "text", text: JSON.stringify({ status: "active_threat", zone, threats: threats.map(t => `[${t.source}] ${t.event}`), ...result }, null, 2) }]
+        content: [{ type: "text", text: JSON.stringify({ status: "active_threat", zone, threats: threats.map(t => `[${t.source}] ${t.event}${t.issued_at ? " @ " + t.issued_at : ""}`), ...result }, null, 2) }]
       };
     }
   );
@@ -175,9 +194,10 @@ function buildServer() {
     },
     async ({ armed }) => {
       demoArmed = armed;
-      demoAlertsCache = null;   // force a fresh Browserbase scrape on the next armed poll
+      demoAlertsCache = null;   // drop any prior discovery so a fresh arming re-gathers
+      if (armed) startDemoDiscovery();   // begin Browserbase discovery now, in the background
       console.log(`[tool call] set_demo_disaster armed=${armed}`);
-      return { content: [{ type: "text", text: JSON.stringify({ demo_armed: demoArmed, note: armed ? "Simulated Lahaina flood ARMED — next check_active_threats will report active_threat." : "Disarmed — back to real live monitoring." }) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ demo_armed: demoArmed, note: armed ? "ARMED — Browserbase is now searching Google News and reading the top reports in the background (~a few minutes). Once done, the next check_active_threats poll will report active_threat." : "Disarmed — back to real live monitoring." }) }] };
     }
   );
 
