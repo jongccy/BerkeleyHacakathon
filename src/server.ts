@@ -5,7 +5,7 @@ import { zoneForPoint } from "./zones.js";
 import { mockAlerts } from "./sources/mock.js";
 import { nwsAlerts } from "./sources/nws.js";
 import { mauiScrapedAlerts } from "./sources/maui.js";
-import { geocodeAddress } from "./geocode.js";
+import { geocodeAddress, suggestAddresses } from "./geocode.js";
 import { readFileSync } from "fs";
 
 const shelters = JSON.parse(readFileSync("data/shelters.json", "utf8"));
@@ -20,7 +20,7 @@ app.post("/api/advise", async (req, res) => {
   // from the CLI) still work and skip geocoding.
   if (p.address && (typeof p.lat !== "number" || typeof p.lng !== "number")) {
     const geo = await geocodeAddress(p.address);
-    if (!geo) return res.status(422).json({ error: `Could not locate "${p.address}". Include city and state, e.g. "Lahaina, HI".` });
+    if (!geo) return res.status(422).json({ error: `Could not locate "${p.address}". Try selecting an address from the suggestions.` });
     p.lat = geo.lat; p.lng = geo.lng;
   }
   if (typeof p.lat !== "number" || typeof p.lng !== "number") {
@@ -39,6 +39,12 @@ app.post("/api/advise", async (req, res) => {
   const zone = zoneForPoint(p.lng, p.lat);
   const result = await reconcile(p, alerts.length ? alerts : mockAlerts(), shelters, zone);
   res.json({ resolved: { address: p.address, lat: p.lat, lng: p.lng }, zone, ...result });
+});
+
+app.get("/api/address/suggest", async (req, res) => {
+  const q = String(req.query.q || "");
+  const suggestions = await suggestAddresses(q, 6);
+  res.json(suggestions);
 });
 
 // Expose the client-side Google Maps key (if configured) to the browser.
