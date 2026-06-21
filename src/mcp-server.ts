@@ -219,6 +219,13 @@ function buildServer() {
         }
         alerts = demoAlertsCache;
       } else {
+        // Baseline: quiet "all clear" by default. The live scrape can trip on
+        // non-evacuation warnings (e.g. an active High Surf Warning), which would
+        // break the demo's all-clear state and text the resident unprompted. Real
+        // live monitoring is opt-in via LIVE_MONITORING=true.
+        if (process.env.LIVE_MONITORING !== "true") {
+          return { content: [{ type: "text", text: JSON.stringify({ status: "no_active_threat", zone, baseline: true }) }] };
+        }
         const [nws, scraped] = [await nwsAlerts(), await mauiScrapedAlerts()];
         alerts = [...nws, ...scraped];
       }

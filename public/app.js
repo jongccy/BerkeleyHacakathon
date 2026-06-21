@@ -1359,7 +1359,15 @@ function getUpdatePersonalStatus(alert) {
   if (!action) return null;
 
   const { guidance } = getUserLocationContext();
-  const affectsUser = alertAreaMatchesUser(alert);
+  // During an active evacuation that applies to the user, treat every serious update
+  // as relevant. Otherwise per-card area matching can wrongly say "you're OK here"
+  // and contradict the headline evacuation guidance.
+  const activeEvac =
+    !!guidance &&
+    guidance.fail_safe !== true &&
+    guidance.applies_to_user !== false &&
+    /evacuat|leave|higher ground|move now|head to|get to/.test((guidance.recommended_action || "").toLowerCase());
+  const affectsUser = alertAreaMatchesUser(alert) || activeEvac;
 
   if (action === "route") {
     if (!affectsUser) {
@@ -2420,8 +2428,44 @@ function updateLiveMapPin(pos) {
   pin.style.top = `${y}%`;
 }
 
+// Calm "all clear" state — shown whenever no disaster/scenario is active. The app's
+// disaster display is driven entirely by the bridge, so the baseline is honest.
+function renderAllClear() {
+  state.showEvacuationRoute = false;
+  renderMapRoute();
+  $("map-pins")?.querySelector(".map-pin--live")?.remove();
+
+  const g = $("home-guidance");
+  if (g) {
+    g.classList.remove("is-failsafe");
+    g.innerHTML = `
+      <span class="platform-guidance__badge">All clear</span>
+      <p class="platform-guidance__action">No active evacuation orders for your area.</p>
+      <p class="platform-guidance__summary">We're monitoring official channels and will alert you the moment anything changes.</p>
+      <p class="platform-guidance__meta">${escapeHtml(state.data.address || "Your area")} · Monitoring</p>`;
+  }
+  const calm = `<div style="padding:18px;border-radius:16px;background:rgba(20,20,20,.04);color:#6b6b6b;font-size:14px;line-height:1.5">No active alerts. We're monitoring official channels for your region and will notify you if an emergency is declared.</div>`;
+  const uf = $("updates-feed"); if (uf) uf.innerHTML = calm;
+  const huf = $("home-updates-feed"); if (huf) huf.innerHTML = calm;
+  renderPrepListSection("prep-now-list", [
+    { id: "clear-ready", label: "You're all set — no action needed right now", detail: "We'll send your steps here if an emergency is declared", urgent: false },
+  ], "now");
+}
+
 function applyDemoState(d) {
-  if (!d || !d.active) return;
+  if (!d || !d.active) { renderAllClear(); return; }
+
+  // Disaster active — drive the whole app from the scenario.
+  if (d.guidance && d.guidance.recommended_action) {
+    state.guidance = { ...d.guidance, resolved: { address: state.data.address } };
+    renderHomeGuidance(state.guidance);
+    if (d.guidance.destination) {
+      state.routeDestination = null;
+      state.routeSource = "guidance";
+      state.showEvacuationRoute = true;
+      renderMapRoute();
+    }
+  }
   if (Array.isArray(d.news) && d.news.length) {
     state.cachedAlerts = d.news;
     renderUpdatesFeed(d.news, "updates-feed", state.updateFilter);
@@ -2431,7 +2475,6 @@ function applyDemoState(d) {
     const items = d.tasks.map((t, i) => ({ id: `live-${i}`, label: t, detail: "", urgent: true }));
     renderPrepListSection("prep-now-list", items, "now");
   }
-  if (d.guidance && d.guidance.recommended_action) renderHomeGuidance(d.guidance);
   if (d.position) updateLiveMapPin(d.position);
 }
 
