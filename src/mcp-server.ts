@@ -311,7 +311,30 @@ function buildServer() {
       startDemoDiscovery();   // ALSO kick off Browserbase in the background — its web
                               // findings for this same event merge into the guidance.
       console.log(`[tool call] set_demo_scenario active=true at=${at || "start"}`);
-      return { content: [{ type: "text", text: JSON.stringify({ scenario_active: true, at: at || "start", note: "East Maui (Kaupakalua Dam) demo started. The official situation feed + family GPS are live now; Browserbase is reading the real news articles in the background (~3 min) and will merge into the guidance. Each check_active_threats poll advances the timeline." }) }] };
+
+      // Compute the FIRST alert right here so the trigger itself returns something to
+      // text — no waiting on the next automation poll (that's what felt slow).
+      const snap = scenarioSnapshot();
+      const merged = [...snap.alerts, ...newsAsOf(snap.clockMs)];
+      let alert: any = null;
+      if (merged.filter(isThreat).length) {
+        const guidance = await reconcile(snap.profile, merged, snap.shelters, "Haiku (Kaupakalua Dam downstream corridor)");
+        lastGuidance = guidance;
+        alert = {
+          at: snap.latest?.at,
+          development: snap.latest?.text,
+          recommended_action: guidance.recommended_action,
+          destination: guidance.destination,
+        };
+      }
+      return { content: [{ type: "text", text: JSON.stringify({
+        scenario_active: true,
+        at: at || "start",
+        alert,
+        note: alert
+          ? "Scenario started. TEXT THE RESIDENT NOW: '⚠️ ' + alert.at + ' ' + alert.development, then alert.recommended_action and 'Go to ' + alert.destination + '. Open the Lighthouse app.' Then your every-minute check_active_threats automation will send the next developments."
+          : "Scenario started — monitoring. The next check_active_threats poll will surface the first threat."
+      }) }] };
     }
   );
 
