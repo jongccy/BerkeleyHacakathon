@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "zone_name": "Lahaina-1" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-156.69,20.86],[-156.66,20.86],[-156.66,20.89],[-156.69,20.89],[-156.69,20.86]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "zone_name": "Kihei-3" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-156.46,20.74],[-156.43,20.74],[-156.43,20.78],[-156.46,20.78],[-156.46,20.74]]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "maui-evac",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "pipeline": "tsx src/pipeline.ts",
+    "server": "tsx src/server.ts",
+    "test:env": "tsx -e \"console.log('env ok')\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@browserbasehq/stagehand": "^2.3.0",
+    "@turf/boolean-point-in-polygon": "^7.2.0",
+    "@turf/helpers": "^7.2.0",
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.29",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

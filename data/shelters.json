@@ -1,0 +1,5 @@
+[
+  { "name": "War Memorial Gym", "address": "Wailuku, HI", "lat": 20.8893, "lng": -156.5044, "accessible": true, "pet_friendly": false, "transit_accessible": true },
+  { "name": "Lahaina Civic Center", "address": "Lahaina, HI", "lat": 20.8783, "lng": -156.6692, "accessible": true, "pet_friendly": true, "transit_accessible": false },
+  { "name": "Kihei Community Center", "address": "Kihei, HI", "lat": 20.7644, "lng": -156.4450, "accessible": true, "pet_friendly": false, "transit_accessible": true }
+]
