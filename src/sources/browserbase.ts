@@ -1,7 +1,7 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import { z } from "zod";
 
-export async function scrapeAlerts(url: string, what: string) {
+export async function scrapeAlerts(url: string, what: string, instruction?: string) {
   const stagehand = new Stagehand({
     env: "BROWSERBASE",
     apiKey: process.env.BROWSERBASE_API_KEY,
@@ -20,7 +20,9 @@ export async function scrapeAlerts(url: string, what: string) {
     const page = stagehand.page;
     await page.goto(url, { waitUntil: "domcontentloaded" });
     const result = await page.extract({
-      instruction: `Extract any active emergency alerts about ${what}. For each, return its title/event, the area it affects, and the instruction to residents.`,
+      // Default instruction targets live "active alert" pages. Callers scraping a
+      // historical/archived event page pass a tailored instruction instead.
+      instruction: instruction || `Extract any active emergency alerts about ${what}. For each, return its title/event, the area it affects, and the instruction to residents.`,
       schema: z.object({
         alerts: z.array(z.object({
           event: z.string(),

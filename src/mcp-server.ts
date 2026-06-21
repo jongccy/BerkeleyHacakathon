@@ -9,7 +9,7 @@ import { zoneForPoint } from "./zones.js";
 import { geocodeAddress } from "./geocode.js";
 import { mockAlerts } from "./sources/mock.js";
 import { nwsAlerts } from "./sources/nws.js";
-import { mauiScrapedAlerts } from "./sources/maui.js";
+import { mauiScrapedAlerts, demoFloodAlerts } from "./sources/maui.js";
 
 // Poke (and any MCP client) connects to this server's /sse endpoint and can call
 // the tool below. This is the two-way, adaptive path: a resident texts their Poke
@@ -23,6 +23,25 @@ const shelters = JSON.parse(readFileSync("data/shelters.json", "utf8"));
 // threat. To prove that on stage without waiting for a real tsunami, set_demo_disaster
 // arms a simulated Lahaina flood; the next poll then trips and Poke alerts you.
 let demoArmed = false;
+
+// When armed, Browserbase scrapes a real past Maui flood event (demoFloodAlerts).
+// Cache the scrape so we hit Browserbase once per arming — not on every 2-min poll —
+// while still giving a genuine live session (replay) the first time. Cleared on
+// every arm/disarm so each fresh arming re-scrapes. Falls back to mockAlerts so the
+// demo can never break if the scrape returns nothing.
+let demoAlertsCache: { at: number; alerts: any[] } | null = null;
+const DEMO_CACHE_MS = 10 * 60 * 1000;
+
+async function getDemoAlerts(): Promise<any[]> {
+  if (demoAlertsCache && Date.now() - demoAlertsCache.at < DEMO_CACHE_MS) return demoAlertsCache.alerts;
+  let alerts = await demoFloodAlerts();
+  if (!alerts.length) {
+    console.warn("[demo] Browserbase scrape returned nothing — falling back to seeded mockAlerts.");
+    alerts = mockAlerts();
+  }
+  demoAlertsCache = { at: Date.now(), alerts };
+  return alerts;
+}
 
 // What counts as an evacuation-relevant threat. Deliberately trips on warning/
 // emergency-grade events, not routine advisories, so the watcher doesn't cry wolf.
@@ -116,10 +135,10 @@ function buildServer() {
       const zone = zoneForPoint(geo.lng, geo.lat);
 
       // Live sources only — NO scenario fallback, so "quiet" reads as quiet.
-      // When the demo is armed, inject the seeded flood as if it were live.
+      // When armed, Browserbase scrapes a real past Maui flood event (cached per arming).
       let alerts: any[];
       if (demoArmed) {
-        alerts = mockAlerts();
+        alerts = await getDemoAlerts();
       } else {
         const [nws, scraped] = [await nwsAlerts(), await mauiScrapedAlerts()];
         alerts = [...nws, ...scraped];
@@ -156,6 +175,7 @@ function buildServer() {
     },
     async ({ armed }) => {
       demoArmed = armed;
+      demoAlertsCache = null;   // force a fresh Browserbase scrape on the next armed poll
       console.log(`[tool call] set_demo_disaster armed=${armed}`);
       return { content: [{ type: "text", text: JSON.stringify({ demo_armed: demoArmed, note: armed ? "Simulated Lahaina flood ARMED — next check_active_threats will report active_threat." : "Disarmed — back to real live monitoring." }) }] };
     }
