@@ -57,6 +57,10 @@ app.get("/api/updates", (_req, res) => {
   res.json(mockAlerts());
 });
 
+app.get("/api/shelters", (_req, res) => {
+  res.json(shelters);
+});
+
 app.get("/api/address/suggest", async (req, res) => {
   const q = String(req.query.q || "");
   const suggestions = await suggestAddresses(q, 6);

@@ -271,9 +271,16 @@
         <!-- Home -->
         <div class="platform-view is-active" data-platform-view="home">
           <div class="home-scroll">
-            <section class="platform-map" aria-label="Family map">
+            <section class="platform-map" id="home-map" aria-label="Family map">
               <div class="platform-map__bg"></div>
+              <div class="platform-map__route-layer" id="map-route-layer" hidden></div>
               <div class="platform-map__pins" id="map-pins"></div>
+              <div class="platform-map__actions">
+                <button type="button" class="platform-map__nav-btn" id="btn-nearest-shelter">
+                  <span class="platform-map__nav-icon" aria-hidden="true">📍</span>
+                  Nearest shelter
+                </button>
+              </div>
             </section>
 
             <section class="home-section">
@@ -427,8 +434,8 @@
         </div>
         <p class="platform-sheet-modal__subtitle" id="broadcast-sheet-subtitle">Choose who to check in with, or select everyone.</p>
         <div class="broadcast-preview">
-          <p class="broadcast-preview__label">Message</p>
-          <p class="broadcast-preview__text" id="broadcast-message">Are you safe? Reply YES or share your location.</p>
+          <label class="broadcast-preview__label" for="broadcast-message">Message</label>
+          <textarea id="broadcast-message" class="broadcast-preview__input" rows="3" maxlength="280" placeholder="Write your check-in message…">Are you safe? Reply YES.</textarea>
         </div>
         <div id="broadcast-member-picker" class="checkin-picker-wrap"></div>
         <button type="button" class="btn btn--primary" id="btn-send-checkin">Send check-in</button>

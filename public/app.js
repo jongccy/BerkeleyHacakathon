@@ -96,6 +96,8 @@ const DEPENDENT_MOCK_DETAILS = [
   { name: "Sam", location: "225 Piikea Ave, Kihei, HI 96753", status: "Safe", dot: "safe", mapX: 74, mapY: 64 },
 ];
 
+const DEFAULT_CHECKIN_MESSAGE = "Are you safe? Reply YES.";
+
 const state = {
   step: 0,
   selectedAddress: null,
@@ -107,6 +109,12 @@ const state = {
   cachedAlerts: [],
   invitedMembers: [],
   prepChecked: {},
+  checkinMessage: DEFAULT_CHECKIN_MESSAGE,
+  showEvacuationRoute: false,
+  mapRouteLineVisible: false,
+  routeDestination: null,
+  routeSource: null,
+  shelters: null,
 };
 
 let isTransitioning = false;
@@ -994,6 +1002,7 @@ function toggleReviewEditor(key) {
 
 function refreshPlatformAfterProfileEdit() {
   renderMapPins();
+  renderMapRoute();
   renderFamilyScroll();
   renderFamilyView();
   renderPrepList();
@@ -1306,6 +1315,452 @@ function updateTimeLabel(alert, allAlerts) {
   return index >= 0 ? times[index] || "Recently" : "Recently";
 }
 
+function getUserLocationContext() {
+  const guidance = state.guidance;
+  const address = (guidance?.resolved?.address || state.data?.address || "").toLowerCase();
+  const zone = (guidance?.zone || "").toLowerCase();
+  return { address, zone, guidance };
+}
+
+function alertAreaMatchesUser(alert) {
+  const { address, zone } = getUserLocationContext();
+  const area = (alert.area || "").toLowerCase();
+  if (!area) return true;
+
+  const zoneRoot = zone.split("-")[0];
+  if (zoneRoot && area.includes(zoneRoot)) return true;
+
+  const placeTokens = ["lahaina", "kihei", "west maui", "central maui", "wailuku", "paia"];
+  for (const place of placeTokens) {
+    if (area.includes(place) && address.includes(place)) return true;
+  }
+
+  if (/maui/i.test(area) && /hi\b|maui/i.test(address)) return true;
+  return false;
+}
+
+function parseAlertAction(alert) {
+  const text = `${alert.event} ${alert.text}`.toLowerCase();
+  if (/shelter in place|do not evacuat|stay indoors|remain in place/.test(text)) return "shelter";
+  if (/evacuat|higher ground|low-lying|leave immediately|move to .*shelter|designated shelter/.test(text)) {
+    return "evacuate";
+  }
+  if (/avoid .* highway|road closure|flooding reported/.test(text)) return "route";
+  return null;
+}
+
+function getUpdatePersonalStatus(alert) {
+  const action = parseAlertAction(alert);
+  if (!action) return null;
+
+  const { guidance } = getUserLocationContext();
+  const affectsUser = alertAreaMatchesUser(alert);
+
+  if (action === "route") {
+    if (!affectsUser) {
+      return {
+        status: "ok",
+        label: "You're OK where you are",
+        detail: "This route advisory doesn't cover your area.",
+      };
+    }
+    return {
+      status: "monitor",
+      label: "Check your route",
+      detail: "Your location may be fine, but avoid affected roads.",
+    };
+  }
+
+  if (!guidance) {
+    return affectsUser
+      ? {
+          status: "monitor",
+          label: "Check if this applies to you",
+          detail: "Activate your profile for personalized guidance.",
+        }
+      : {
+          status: "ok",
+          label: "You're OK where you are",
+          detail: "This update doesn't appear to cover your area.",
+        };
+  }
+
+  if (guidance.fail_safe) {
+    return {
+      status: "monitor",
+      label: "Follow official guidance",
+      detail: "Alerts conflict — confirm with county channels before moving.",
+    };
+  }
+
+  if (!affectsUser) {
+    return {
+      status: "ok",
+      label: "You're OK where you are",
+      detail: "Your address isn't in the area this update describes.",
+    };
+  }
+
+  const recommended = (guidance.recommended_action || "").toLowerCase();
+
+  if (action === "evacuate") {
+    if (guidance.applies_to_user === false || /no active evacuation|stay alert/.test(recommended)) {
+      return {
+        status: "ok",
+        label: "You're OK where you are",
+        detail: guidance.recommended_action || "No evacuation order applies to your address right now.",
+      };
+    }
+    if (/evacuat|higher ground|leave|move/.test(recommended) || guidance.applies_to_user === true) {
+      return {
+        status: "move",
+        label: "You need to move",
+        detail: guidance.recommended_action || "Leave for a safer location per official guidance.",
+      };
+    }
+  }
+
+  if (action === "shelter") {
+    if (/shelter|stay|remain|do not leave/.test(recommended)) {
+      return {
+        status: "ok",
+        label: "You're OK where you are",
+        detail: guidance.recommended_action || "Shelter in place applies to your location.",
+      };
+    }
+    if (/evacuat|leave|higher ground/.test(recommended)) {
+      return {
+        status: "move",
+        label: "You need to move",
+        detail: guidance.recommended_action || "Your guidance says to evacuate, not shelter in place.",
+      };
+    }
+  }
+
+  return affectsUser
+    ? {
+        status: "monitor",
+        label: "Monitor closely",
+        detail: "Watch for changes that apply to your area.",
+      }
+    : {
+        status: "ok",
+        label: "You're OK where you are",
+        detail: "This update doesn't appear to cover your area.",
+      };
+}
+
+function renderUpdatePersonalStatus(alert) {
+  const personal = getUpdatePersonalStatus(alert);
+  if (!personal) return "";
+
+  const routeBtn =
+    personal.status === "move"
+      ? `<button type="button" class="update-card__route-btn" data-view-route>View route</button>`
+      : "";
+
+  const headClass = routeBtn ? " update-card__personal-head--with-action" : "";
+
+  return `
+      <div class="update-card__personal update-card__personal--${escapeHtml(personal.status)}" role="status">
+        <div class="update-card__personal-head${headClass}">
+          <div class="update-card__personal-copy">
+            <p class="update-card__personal-label">For you</p>
+            <p class="update-card__personal-action">${escapeHtml(personal.label)}</p>
+          </div>
+          ${routeBtn}
+        </div>
+        <p class="update-card__personal-detail">${escapeHtml(personal.detail)}</p>
+      </div>`;
+}
+
+const MAP_BOUNDS = {
+  minLat: 20.75,
+  maxLat: 20.9,
+  minLng: -156.69,
+  maxLng: -156.44,
+};
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function latLngToMapPercent(lat, lng) {
+  const { minLat, maxLat, minLng, maxLng } = MAP_BOUNDS;
+  const mapX = ((lng - minLng) / (maxLng - minLng)) * 100;
+  const mapY = ((maxLat - lat) / (maxLat - minLat)) * 100;
+  return { mapX: clamp(mapX, 6, 94), mapY: clamp(mapY, 8, 92) };
+}
+
+function getUserGeo() {
+  const resolved = state.guidance?.resolved;
+  if (typeof resolved?.lat === "number" && typeof resolved?.lng === "number") {
+    return { lat: resolved.lat, lng: resolved.lng };
+  }
+  if (typeof state.selectedAddress?.lat === "number" && typeof state.selectedAddress?.lng === "number") {
+    return { lat: state.selectedAddress.lat, lng: state.selectedAddress.lng };
+  }
+  return { lat: 20.8783, lng: -156.6797 };
+}
+
+function distanceKm(lat1, lng1, lat2, lng2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getEligibleShelters(shelters) {
+  if (!shelters?.length) return [];
+  const d = state.data;
+  const hasPets = d.animals && d.animals !== "none";
+  const noCar = d.vehicle_access === "no";
+  const mobility =
+    (d.accessibility && d.accessibility !== "none") ||
+    (d.vulnerable && d.vulnerable !== "none");
+
+  const eligible = shelters.filter((s) => {
+    if (hasPets && !s.pet_friendly) return false;
+    if (mobility && !s.accessible) return false;
+    if (noCar && !s.transit_accessible) return false;
+    return true;
+  });
+  return eligible.length ? eligible : shelters;
+}
+
+function buildShelterDirections(shelter) {
+  if (state.guidance?.how_to_get_there && state.routeSource === "guidance") {
+    return state.guidance.how_to_get_there;
+  }
+  const d = state.data;
+  if (d.vehicle_access === "no") {
+    return shelter.transit_accessible
+      ? `Use Maui County transit toward ${shelter.address}.`
+      : `Coordinate pickup to ${shelter.address}.`;
+  }
+  return `Drive on designated evacuation routes to ${shelter.address}.`;
+}
+
+async function ensureSheltersLoaded() {
+  if (state.shelters?.length) return state.shelters;
+  try {
+    const res = await fetch("/api/shelters");
+    if (!res.ok) throw new Error("failed");
+    const data = await res.json();
+    state.shelters = Array.isArray(data) ? data : [];
+  } catch {
+    state.shelters = [
+      {
+        name: "War Memorial Gym",
+        address: "Wailuku, HI",
+        lat: 20.8893,
+        lng: -156.5044,
+        accessible: true,
+        pet_friendly: false,
+        transit_accessible: true,
+      },
+      {
+        name: "Lahaina Civic Center",
+        address: "Lahaina, HI",
+        lat: 20.8783,
+        lng: -156.6692,
+        accessible: true,
+        pet_friendly: true,
+        transit_accessible: false,
+      },
+      {
+        name: "Kihei Community Center",
+        address: "Kihei, HI",
+        lat: 20.7644,
+        lng: -156.445,
+        accessible: true,
+        pet_friendly: false,
+        transit_accessible: true,
+      },
+    ];
+  }
+  return state.shelters;
+}
+
+function findNearestShelter(shelters) {
+  const geo = getUserGeo();
+  const eligible = getEligibleShelters(shelters);
+  let nearest = null;
+  let minDist = Infinity;
+
+  for (const shelter of eligible) {
+    const dist = distanceKm(geo.lat, geo.lng, shelter.lat, shelter.lng);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = shelter;
+    }
+  }
+
+  if (!nearest) return null;
+  const { mapX, mapY } = latLngToMapPercent(nearest.lat, nearest.lng);
+  return {
+    shelter: nearest,
+    mapX,
+    mapY,
+    label: nearest.name,
+    distanceMi: (minDist * 0.621371).toFixed(1),
+    directions: buildShelterDirections(nearest),
+  };
+}
+
+function shelterFromGuidance() {
+  const destName = (state.guidance?.destination || "").toLowerCase();
+  if (!destName || !state.shelters?.length) return null;
+  const shelter = state.shelters.find((s) => destName.includes(s.name.toLowerCase()));
+  if (!shelter) return null;
+  const { mapX, mapY } = latLngToMapPercent(shelter.lat, shelter.lng);
+  return {
+    mapX,
+    mapY,
+    label: shelter.name,
+    directions: buildShelterDirections(shelter),
+  };
+}
+
+function getRouteDestination() {
+  if (state.routeDestination) return state.routeDestination;
+  const fromGuidance = shelterFromGuidance();
+  if (fromGuidance) return fromGuidance;
+  const destName = state.guidance?.destination || "";
+  return {
+    mapX: 56,
+    mapY: 24,
+    label: destName || "Evacuation shelter",
+    directions: state.guidance?.how_to_get_there || "Follow designated evacuation routes.",
+  };
+}
+
+function updateMapNavButtons() {
+  $("btn-nearest-shelter")?.classList.toggle(
+    "is-active",
+    state.showEvacuationRoute && state.routeSource === "nearest"
+  );
+}
+
+function buildMapRouteBanner(dest, routeTitle, showViewRouteBtn) {
+  const distanceLine = dest.distanceMi ? `${dest.distanceMi} mi away · ` : "";
+  const directions = dest.directions || state.guidance?.how_to_get_there || "Follow designated evacuation routes.";
+  const routeBtn = showViewRouteBtn
+    ? `<button type="button" class="platform-map__route-btn" data-map-view-route>View route</button>`
+    : "";
+
+  return `
+    <div class="platform-map__route-banner">
+      <div class="platform-map__route-head${routeBtn ? " platform-map__route-head--with-action" : ""}">
+        <div class="platform-map__route-copy">
+          <p class="platform-map__route-title">${escapeHtml(routeTitle)}</p>
+          <p class="platform-map__route-dest">${escapeHtml(dest.label)}</p>
+        </div>
+        ${routeBtn}
+      </div>
+      <p class="platform-map__route-detail">${escapeHtml(distanceLine)}${escapeHtml(directions)}</p>
+    </div>`;
+}
+
+function renderMapRoute() {
+  const layer = $("map-route-layer");
+  const map = $("home-map");
+  if (!layer) return;
+
+  if (!state.showEvacuationRoute) {
+    layer.hidden = true;
+    layer.innerHTML = "";
+    map?.classList.remove("is-showing-route", "is-showing-panel");
+    updateMapNavButtons();
+    return;
+  }
+
+  const dest = getRouteDestination();
+  const routeTitle = state.routeSource === "nearest" ? "Nearest shelter" : "Evacuation route";
+  const showViewRouteBtn = state.routeSource === "nearest" && !state.mapRouteLineVisible;
+  let markup = buildMapRouteBanner(dest, routeTitle, showViewRouteBtn);
+
+  if (state.mapRouteLineVisible) {
+    const geo = getUserGeo();
+    const you = latLngToMapPercent(geo.lat, geo.lng);
+    const x1 = you.mapX;
+    const y1 = you.mapY;
+    const x2 = dest.mapX;
+    const y2 = dest.mapY;
+    const cx = (x1 + x2) / 2;
+    const cy = Math.min(y1, y2) - 10;
+
+    markup = `
+    <svg class="platform-map__route" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <path class="platform-map__route-line" d="M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}" />
+    </svg>
+    <div class="map-pin map-pin--dest" style="left:${dest.mapX}%;top:${dest.mapY}%;">
+      <span class="map-pin__dot"></span>
+      <span class="map-pin__label">${escapeHtml(dest.label.split(" ")[0])}</span>
+      <span class="map-pin__status">Shelter</span>
+    </div>
+    ${markup}`;
+  }
+
+  layer.innerHTML = markup;
+  layer.hidden = false;
+  map?.classList.toggle("is-showing-route", state.mapRouteLineVisible);
+  map?.classList.toggle("is-showing-panel", !state.mapRouteLineVisible);
+  updateMapNavButtons();
+}
+
+function showMapRouteLine() {
+  state.mapRouteLineVisible = true;
+  renderMapRoute();
+}
+
+function scrollToEvacuationMap() {
+  const scroll = () => {
+    $("home-map")?.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      block: "start",
+    });
+  };
+  if (prefersReducedMotion()) scroll();
+  else setTimeout(scroll, 100);
+}
+
+async function showGuidanceRoute() {
+  await ensureSheltersLoaded();
+  state.routeSource = "guidance";
+  state.routeDestination = shelterFromGuidance();
+  state.showEvacuationRoute = true;
+  state.mapRouteLineVisible = true;
+  renderMapRoute();
+}
+
+async function openEvacuationRoute() {
+  switchPlatformTab("home");
+  await showGuidanceRoute();
+  scrollToEvacuationMap();
+}
+
+async function navigateToNearestShelter() {
+  await ensureSheltersLoaded();
+  const nearest = findNearestShelter(state.shelters);
+  if (!nearest) return;
+
+  state.routeSource = "nearest";
+  state.routeDestination = {
+    mapX: nearest.mapX,
+    mapY: nearest.mapY,
+    label: nearest.label,
+    distanceMi: nearest.distanceMi,
+    directions: nearest.directions,
+  };
+  state.showEvacuationRoute = true;
+  state.mapRouteLineVisible = false;
+  renderMapRoute();
+}
+
 function renderHomeGuidance(data) {
   const el = $("home-guidance");
   if (!el || !data) return;
@@ -1487,6 +1942,7 @@ function buildUpdatesHtml(alerts, filter, limit = null) {
       </div>
       <span class="update-card__badge">${escapeHtml(a.event)}</span>
       <p class="update-card__text">${escapeHtml(a.text)}</p>
+      ${renderUpdatePersonalStatus(a)}
       <p class="update-card__area">${escapeHtml(a.area)} · ${escapeHtml(a.severity)}</p>
     </article>`
     )
@@ -1729,6 +2185,11 @@ function openBroadcastSheet(memberId = null) {
   const selected = memberId ? [memberId] : members.map((m) => m.id);
   renderBroadcastMemberPicker(selected);
 
+  const messageEl = $("broadcast-message");
+  if (messageEl) {
+    messageEl.value = state.checkinMessage || DEFAULT_CHECKIN_MESSAGE;
+  }
+
   const hint = $("broadcast-hint");
   if (hint) {
     hint.textContent = "";
@@ -1740,6 +2201,18 @@ function openBroadcastSheet(memberId = null) {
 function sendCheckin() {
   const checked = [...document.querySelectorAll(".checkin-picker__check:checked")];
   const hint = $("broadcast-hint");
+  const messageEl = $("broadcast-message");
+  const message = messageEl?.value?.trim() || "";
+
+  if (!message) {
+    if (hint) {
+      hint.textContent = "Enter a message for your check-in.";
+      hint.classList.add("is-error");
+    }
+    messageEl?.focus();
+    return;
+  }
+
   if (!checked.length) {
     if (hint) {
       hint.textContent = "Select at least one family member.";
@@ -1747,6 +2220,8 @@ function sendCheckin() {
     }
     return;
   }
+
+  state.checkinMessage = message;
 
   const names = checked
     .map((cb) => getCheckinTargets().find((m) => m.id === cb.dataset.checkinTarget)?.name.split(" ")[0])
@@ -1808,10 +2283,12 @@ function renderPlatform() {
   if (avatar) avatar.textContent = initials(d.name);
 
   renderMapPins();
+  renderMapRoute();
   renderFamilyScroll();
   renderHomeGuidance(state.guidance);
   renderFamilyView();
   renderPrepList();
+  ensureSheltersLoaded();
   loadUpdates();
 }
 
@@ -2077,6 +2554,18 @@ function bindPlatform() {
 
   $("btn-see-all-updates")?.addEventListener("click", () => switchPlatformTab("updates"));
 
+  $("btn-nearest-shelter")?.addEventListener("click", () => {
+    navigateToNearestShelter();
+  });
+
+  $("map-route-layer")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-map-view-route]");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showMapRouteLine();
+  });
+
   document.querySelectorAll("#update-pills .platform-pill").forEach((pill) => {
     pill.addEventListener("click", () => {
       state.updateFilter = pill.dataset.filter;
@@ -2095,6 +2584,14 @@ function bindPlatform() {
       });
       renderHomeUpdatesPreview(state.cachedAlerts);
     });
+  });
+
+  document.querySelector(".platform-main")?.addEventListener("click", (e) => {
+    const routeBtn = e.target.closest("[data-view-route]");
+    if (routeBtn) {
+      e.preventDefault();
+      openEvacuationRoute();
+    }
   });
 
   $("family-sections")?.addEventListener("click", (e) => {
