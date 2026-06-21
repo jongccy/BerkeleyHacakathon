@@ -1,0 +1,17 @@
+{
+  "_note": "The family being portrayed in the East Maui (Kaupakalua Dam) demo. Identity + home are taken from kaupakalua-location-feed.json's `user` block; the personalization fields (has_car, mobility_needs, pets, language) are demo assumptions for this 'Family of five' household. They are driving in the location feed, so has_car=true. Edit these to drive different reconcile() outputs, then re-run `npm run demo:drive`.",
+  "id": 1,
+  "name": "Family of five",
+  "phone": "+1XXXXXXXXXX",
+  "home": {
+    "lat": 20.902635,
+    "lng": -156.289518,
+    "zip": "96708",
+    "label": "Haʻikū, HI"
+  },
+  "household_size": 5,
+  "has_car": true,
+  "mobility_needs": "none",
+  "pets": false,
+  "language": "en"
+}

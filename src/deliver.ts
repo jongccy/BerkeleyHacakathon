@@ -1,4 +1,5 @@
-import twilio from "twilio";
+// twilio is imported lazily (inside getTwilioClient) so this module loads even when
+// the package isn't installed — e.g. Poke-only demos, which never touch Twilio.
 
 // Normalize a phone number to E.164 (what Twilio requires): a leading "+",
 // country code, then digits — no spaces, dashes, or parens. We default a bare
@@ -31,14 +32,16 @@ async function sendViaPoke(_to: string, body: string) {
   return res.json();
 }
 
-// Lazily construct the Twilio client so the module still imports when Twilio
-// creds are absent (e.g. compute-only runs). Only built when we actually send.
-let twilioClient: ReturnType<typeof twilio> | null = null;
-function getTwilioClient() {
+// Lazily import + construct the Twilio client so the module still loads when the
+// twilio package or creds are absent (e.g. Poke-only or compute-only runs). Only
+// built when we actually send via Twilio.
+let twilioClient: any = null;
+async function getTwilioClient() {
   if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
     throw new Error("Twilio not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing)");
   }
   if (!twilioClient) {
+    const { default: twilio } = await import("twilio");
     twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
   }
   return twilioClient;
@@ -60,7 +63,7 @@ async function sendViaTwilio(to: string, body: string) {
   if (!process.env.TWILIO_FROM_NUMBER) throw new Error("TWILIO_FROM_NUMBER not set");
   // Cap to 2 GSM-7 segments (320 chars) so trial accounts accept it.
   const safeBody = gsmSafe(body).slice(0, 320);
-  return getTwilioClient().messages.create({
+  return (await getTwilioClient()).messages.create({
     from: process.env.TWILIO_FROM_NUMBER,
     to: toE164(to),
     body: safeBody

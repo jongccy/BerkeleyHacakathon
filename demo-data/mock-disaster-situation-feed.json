@@ -1,0 +1,201 @@
+{
+  "scenario": "West Maui flash flood - live situation feed",
+  "timezone": "Pacific/Honolulu (HST, UTC-10)",
+  "start_time": "2026-06-20T14:00:00-10:00",
+  "note": "Synthetic 'live' situation updates for the same 14:00-14:59 HST window as mock-user-location-feed.json. Apply updates in time order to get the situation at any moment. Three things evolve: (1) the recommended evacuation target starts at Kihei Community Center and switches to War Memorial Gym at 14:38 after Route 30 south closes and Kihei floods - which is why the matching location feed turns north at Maalaea; (2) the flood footprint grows as a coast_dist threshold of 0.5 -> 1.5 -> 3.0 km, pulling more areas into risk; (3) shelter resources at War Memorial Gym deplete from full to critical as evacuees arrive.",
+  "initial_evac_target": "Kihei Community Center",
+  "shelters": [
+    {
+      "name": "War Memorial Gym",
+      "area": "Wailuku",
+      "lat": 20.8893,
+      "lng": -156.5044,
+      "accessible": true,
+      "pet_friendly": false,
+      "transit_accessible": true,
+      "resources": {
+        "water_bottles": 1200,
+        "canned_meals": 800,
+        "cots": 200
+      },
+      "status": "open"
+    },
+    {
+      "name": "Lahaina Civic Center",
+      "area": "Lahaina",
+      "lat": 20.8783,
+      "lng": -156.6692,
+      "accessible": true,
+      "pet_friendly": true,
+      "transit_accessible": false,
+      "resources": {
+        "water_bottles": 500,
+        "canned_meals": 300,
+        "cots": 100
+      },
+      "status": "open"
+    },
+    {
+      "name": "Kihei Community Center",
+      "area": "Kihei",
+      "lat": 20.7644,
+      "lng": -156.445,
+      "accessible": true,
+      "pet_friendly": false,
+      "transit_accessible": true,
+      "resources": {
+        "water_bottles": 900,
+        "canned_meals": 600,
+        "cots": 150
+      },
+      "status": "open"
+    }
+  ],
+  "update_count": 15,
+  "updates": [
+    {
+      "t": "2026-06-20T14:00:00-10:00",
+      "type": "flood_extent",
+      "source": "NWS",
+      "tier": 1,
+      "severity": "Moderate",
+      "at_risk_predicate": { "metric": "coast_dist_km", "op": "<=", "value": 0.5 },
+      "zones": [ "Lahaina" ],
+      "text": "Flood Watch for West Maui. Low-lying coastal Lahaina at risk of flooding."
+    },
+    {
+      "t": "2026-06-20T14:00:00-10:00",
+      "type": "evac_target",
+      "source": "Maui Emergency Management",
+      "tier": 1,
+      "target_shelter": "Kihei Community Center",
+      "route_note": "South on Honoapiilani Hwy (Route 30) through Maalaea to Kihei.",
+      "reason": "West Maui flood watch; Kihei is south of the West Maui flood footprint and the shelter is transit-accessible."
+    },
+    {
+      "t": "2026-06-20T14:06:00-10:00",
+      "type": "alert",
+      "source": "NWS",
+      "tier": 1,
+      "severity": "Severe",
+      "at_risk_predicate": { "metric": "coast_dist_km", "op": "<=", "value": 1.0 },
+      "zones": [ "Lahaina" ],
+      "text": "Flash Flood Warning. Evacuate low-lying areas of West Maui immediately and move to higher ground."
+    },
+    {
+      "t": "2026-06-20T14:10:00-10:00",
+      "type": "alert",
+      "source": "Wireless Emergency Alert",
+      "tier": 1,
+      "severity": "Extreme",
+      "text": "Move to designated shelters now. Avoid flooded roads."
+    },
+    {
+      "t": "2026-06-20T14:10:00-10:00",
+      "type": "road_closure",
+      "source": "County of Maui",
+      "tier": 1,
+      "road": "Honoapiilani Hwy (Route 30)",
+      "segment": "north of Lahaina (coastal)",
+      "status": "closed",
+      "text": "Honoapiilani Hwy closed north of Lahaina due to flooding."
+    },
+    {
+      "t": "2026-06-20T14:14:00-10:00",
+      "type": "alert",
+      "source": "Hawaii News Now",
+      "tier": 2,
+      "severity": "Severe",
+      "zones": [ "Lahaina" ],
+      "text": "Floodwaters rising fast in Lahaina town; residents urged to leave. Some streets reporting shelter-in-place."
+    },
+    {
+      "t": "2026-06-20T14:18:00-10:00",
+      "type": "flood_extent",
+      "source": "NWS",
+      "tier": 1,
+      "severity": "Severe",
+      "at_risk_predicate": { "metric": "coast_dist_km", "op": "<=", "value": 1.5 },
+      "zones": [ "Lahaina", "Maalaea" ],
+      "text": "Flooding spreading inland in West Maui. Maalaea now under flood advisory."
+    },
+    {
+      "t": "2026-06-20T14:24:00-10:00",
+      "type": "road_closure",
+      "source": "County of Maui",
+      "tier": 1,
+      "road": "Honoapiilani Hwy (Route 30)",
+      "segment": "south of Maalaea toward Kihei",
+      "status": "closed",
+      "text": "Route 30 closed south of Maalaea toward Kihei due to flooding and debris."
+    },
+    {
+      "t": "2026-06-20T14:30:00-10:00",
+      "type": "alert",
+      "source": "KITV",
+      "tier": 2,
+      "severity": "Severe",
+      "zones": [ "Kihei" ],
+      "text": "Low-lying Kihei now reporting street flooding; shelter access roads affected."
+    },
+    {
+      "t": "2026-06-20T14:38:00-10:00",
+      "type": "evac_target",
+      "source": "Maui Emergency Management",
+      "tier": 1,
+      "target_shelter": "War Memorial Gym",
+      "previous_target": "Kihei Community Center",
+      "route_note": "From Maalaea, take Route 30/380 NORTH to Wailuku. Do not continue south to Kihei.",
+      "reason": "Route 30 south of Maalaea is closed and Kihei is flooding. War Memorial Gym (Wailuku) is the open inland reception shelter."
+    },
+    {
+      "t": "2026-06-20T14:42:00-10:00",
+      "type": "flood_extent",
+      "source": "NWS",
+      "tier": 1,
+      "severity": "Extreme",
+      "at_risk_predicate": { "metric": "coast_dist_km", "op": "<=", "value": 3.0 },
+      "zones": [ "Lahaina", "Maalaea", "Kihei" ],
+      "text": "Flooding now affecting areas up to ~3 km from the coast across West and South Maui."
+    },
+    {
+      "t": "2026-06-20T14:45:00-10:00",
+      "type": "resource",
+      "source": "American Red Cross",
+      "tier": 1,
+      "shelter": "War Memorial Gym",
+      "level": "low",
+      "resources": { "water_bottles": 300, "canned_meals": 250 },
+      "text": "War Memorial Gym water and canned-food supplies running low as evacuees arrive."
+    },
+    {
+      "t": "2026-06-20T14:48:00-10:00",
+      "type": "resource",
+      "source": "County of Maui",
+      "tier": 1,
+      "shelter": "Kihei Community Center",
+      "status": "closed",
+      "text": "Kihei Community Center is not accepting new arrivals due to flooding and capacity."
+    },
+    {
+      "t": "2026-06-20T14:52:00-10:00",
+      "type": "resource",
+      "source": "American Red Cross",
+      "tier": 1,
+      "shelter": "War Memorial Gym",
+      "level": "critical",
+      "resources": { "water_bottles": 120, "canned_meals": 80 },
+      "text": "War Memorial Gym critically low on water and canned goods; resupply ETA ~16:00. Bring your own water if you can."
+    },
+    {
+      "t": "2026-06-20T14:58:00-10:00",
+      "type": "resource",
+      "source": "American Red Cross",
+      "tier": 1,
+      "shelter": "War Memorial Gym",
+      "level": "critical",
+      "resources": { "cots": 0 },
+      "text": "War Memorial Gym at cot capacity; overflow seating on the gym floor. Water resupply en route."
+    }
+  ]
+}

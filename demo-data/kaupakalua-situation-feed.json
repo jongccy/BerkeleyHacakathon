@@ -1,0 +1,385 @@
+{
+  "scenario": "Kaupakalua Dam overflow, Haiku (East Maui) - live situation feed",
+  "timezone": "Pacific/Honolulu (HST, UTC-10)",
+  "start_time": "2021-03-08T10:04:00-10:00",
+  "event_date": "2021-03-08 to 2021-03-09",
+  "note": "Real situation timeline reconstructed from contemporaneous reporting of the March 8-9, 2021 Kaupakalua Dam overflow in Haiku, Maui. Apply updates in time order to get the situation at any moment. All 'text' fields are short factual paraphrases of the cited reporting, not quotations. Coordinates are approximate (coords_approx: true). Four things evolve over the window: (1) HAZARD escalates Flood Advisory -> Flash Flood Warning -> imminent dam failure -> overtopping/cresting -> recession -> warning canceled, then a fresh overnight warning for East Maui; (2) the AT-RISK FOOTPRINT shifts from broad windward Haleakala/Upcountry to the specific downstream Haiku-Pauwela corridor (the dam's ~30 downstream parcels and the population below it), then back to East Maui overnight; (3) SHELTER posture builds up - Paia Community Center and Hana High School open at ~15:04, Eddie Tam Center (Makawao) is added ~16:11, and roughly 30 people shelter overnight; (4) the ROAD network closes (Kaupakalua Rd, Hana Hwy at West Kuiaha, the Peahi Rd bridge, multiple Upcountry roads) and then partially reopens by evening. The dam overtopped but, on closer inspection, did not suffer structural failure.",
+  "initial_evac_target": "Paia Community Center",
+  "types_legend": {
+    "flood_extent": "NWS advisory/warning defining at-risk zones (severity, zones[], valid_until)",
+    "alert": "Urgent situational/public-safety message",
+    "evac_order": "Evacuation instruction (evac_area, target_shelter, reason)",
+    "road_closure": "Road closures or reopenings (roads[], status)",
+    "dam_status": "Kaupakalua Dam condition change (state)",
+    "resource": "Shelter status/occupancy (shelter, status, staffed_by)",
+    "report": "Damage or rainfall situational report"
+  },
+  "hazard": {
+    "name": "Kaupakalua Dam (Kaupakalua Reservoir)",
+    "type": "earthen agricultural dam",
+    "location_area": "Kaupakalua Gulch, Haiku, East Maui (near Peahi Road, ~5 miles east of the Haiku turnoff on Hana Highway)",
+    "lat": 20.9136,
+    "lng": -156.2925,
+    "coords_approx": true,
+    "owner": "East Maui Irrigation (EMI); EMI is half-owned by Mahi Pono and half by A&B",
+    "built_year": 1885,
+    "height_ft": 57,
+    "length_ft": 400,
+    "max_storage_acre_feet": 210,
+    "max_storage_gallons": 68000000,
+    "downstream_parcels": 30,
+    "downstream_population_estimate": 7000,
+    "note": "One of the oldest agricultural dams on Maui. The county evacuation map shows about 30 parcels/lots below the dam."
+  },
+  "shelters": [
+    {
+      "name": "Paia Community Center",
+      "area": "Paia",
+      "lat": 20.905,
+      "lng": -156.37,
+      "coords_approx": true,
+      "accessible": true,
+      "pet_friendly": null,
+      "transit_accessible": null,
+      "staffed_by": "American Red Cross",
+      "role": "primary reception shelter",
+      "status": "open",
+      "note": "Opened ~15:04 HST. As of 18:15 no evacuees had yet logged in here."
+    },
+    {
+      "name": "Hana High School",
+      "area": "Hana",
+      "lat": 20.756,
+      "lng": -155.991,
+      "coords_approx": true,
+      "accessible": true,
+      "pet_friendly": null,
+      "transit_accessible": null,
+      "staffed_by": "American Red Cross",
+      "role": "east-side shelter",
+      "status": "open",
+      "note": "Opened ~15:04 HST alongside Paia Community Center."
+    },
+    {
+      "name": "Eddie Tam Memorial Center",
+      "area": "Makawao",
+      "lat": 20.8525,
+      "lng": -156.3125,
+      "coords_approx": true,
+      "accessible": true,
+      "pet_friendly": null,
+      "transit_accessible": null,
+      "staffed_by": "American Red Cross",
+      "role": "overflow / standby shelter",
+      "status": "open",
+      "note": "Added ~16:11 HST as a third shelter; described as on standby if Paia reached capacity."
+    }
+  ],
+  "downstream_exposure": {
+    "primary_corridor": "Haiku and Pauwela, makai (ocean side) of Kaupakalua Road, and Hana Highway between Haiku and Pauwela",
+    "at_risk_predicate": {
+      "metric": "position",
+      "op": "downstream_of",
+      "value": "Kaupakalua Dam / makai of Kaupakalua Road"
+    }
+  },
+  "outcome_summary": {
+    "homes_heavily_damaged_or_destroyed": "about a half dozen",
+    "bridges": "Peahi Road bridge destroyed; Kaupakalua Bridge heavily damaged",
+    "landslides_reported": true,
+    "rescue_calls": "more than a dozen calls from residents trapped by rising water",
+    "injuries_reported": "none immediately reported",
+    "sheltered_overnight": "about 30 people",
+    "dam_outcome": "overtopped/crested but, on closer inspection, no structural failure",
+    "rainfall_24h_to_1700_mon": {
+      "West Wailuaiki (near Keanae)": "10.38 in",
+      "Haiku": "4.79 in",
+      "Puu Kukui (West Maui Mountains)": "6.09 in",
+      "Pukalani": "1.35 in"
+    },
+    "rainfall_24h_to_0800_tue": {
+      "West Wailuaiki (above Wailua)": "more than 16 in",
+      "Haiku": "nearly 8 in"
+    }
+  },
+  "sources": [
+    {"outlet": "Maui Now", "url": "https://mauinow.com/2021/03/08/breaking-maui-kaupakalua-dam-overflows-evacuations-ordered-haiku/"},
+    {"outlet": "The Maui News", "url": "https://www.mauinews.com/news/local-news/2021/03/water-crests-dam-destroys-bridge-and-damages-homes/"},
+    {"outlet": "Hawaii News Now", "url": "https://www.hawaiinewsnow.com/2021/03/08/flash-flood-watch-issued-big-island-maui-county/"},
+    {"outlet": "The New York Times", "url": "https://www.nytimes.com/2021/03/09/us/maui-hawaii-dam-evacuation.html"},
+    {"outlet": "ABC News", "url": "https://abcnews.com/US/evacuations-ordered-heavy-rainfall-threatens-breach-dam-maui/story?id=76335447"},
+    {"outlet": "FloodList", "url": "https://floodlist.com/america/usa/dam-breach-maui-hawaii-march-2021"},
+    {"outlet": "Honolulu Civil Beat", "url": "https://civilbeat.org/2021/03/maui-area-evacuated-after-heavy-rains-cause-dam-to-overflow/"}
+  ],
+  "update_count": 26,
+  "updates": [
+    {
+      "t": "2021-03-08T10:04:00-10:00",
+      "type": "flood_extent",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Moderate",
+      "valid_until": "2021-03-08T13:15:00-10:00",
+      "zones": ["Kahului", "Lahaina", "Pukalani", "Makawao", "Haliimaile", "Kula", "Paia", "Haiku-Pauwela", "Puunene", "Huelo", "Maalaea", "Wailuku", "Keanae", "Waiehu", "Waikapu", "Waihee", "Nahiku", "Kipahulu", "Kahakuloa"],
+      "text": "Flood Advisory for Maui until 1:15 p.m. Radar shows heavy rain over the windward slopes of Haleakala and the West Maui Mountains, falling 1-2 in/hr. A flood watch remains in effect through late Tuesday night."
+    },
+    {
+      "t": "2021-03-08T10:45:00-10:00",
+      "type": "report",
+      "source": "Maui Now / County of Maui",
+      "tier": 2,
+      "severity": "Moderate",
+      "time_approx": true,
+      "zones": ["Olinda", "Makawao"],
+      "text": "Heavy rain develops Upcountry from mid-morning, flooding roads in the Olinda-Makawao area with near-constant thunder."
+    },
+    {
+      "t": "2021-03-08T11:15:00-10:00",
+      "type": "flood_extent",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Severe",
+      "valid_until": "2021-03-08T14:15:00-10:00",
+      "zones": ["Keanae", "Nahiku", "Kipahulu", "Kaupo", "Huelo", "Kula", "Hana", "Makawao", "Pukalani", "Haiku-Pauwela", "Haliimaile", "Pauwela", "Paia", "Haleakala National Park", "Wailua", "Kailua", "Hamoa"],
+      "text": "Flash Flood Warning for Maui until 2:15 p.m. Radar and rain gauges show heavy rain over windward Haleakala at 2-3 in/hr; flash flooding occurring or beginning shortly."
+    },
+    {
+      "t": "2021-03-08T13:30:00-10:00",
+      "type": "dam_status",
+      "source": "DLNR / East Maui Irrigation (Mahi Pono)",
+      "tier": 1,
+      "severity": "Severe",
+      "state": "level_2_potential_for_failure",
+      "time_approx": true,
+      "text": "The dam's owner contacts the state dam safety program to report extremely heavy rainfall and a spillway running very high. The state initiates a Level 2 emergency ('potential for failure')."
+    },
+    {
+      "t": "2021-03-08T14:08:00-10:00",
+      "type": "alert",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Severe",
+      "zones": ["Wailua", "Haiku", "Pauwela"],
+      "text": "Radar and rain gauges show heavy rain over windward Haleakala; water is reported flowing over Hana Highway at Wailua, with rain at 2-3 in/hr."
+    },
+    {
+      "t": "2021-03-08T14:42:00-10:00",
+      "type": "flood_extent",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Extreme",
+      "valid_until": "2021-03-08T17:45:00-10:00",
+      "zones": ["Haiku", "Pauwela"],
+      "text": "Flash Flood Warning for the Haiku and Pauwela area until 5:45 p.m. Life-threatening flooding and significant property damage are expected downstream of Kaupakalua Dam, including Hana Highway between Haiku and Pauwela. Stay away from streams, ditches and culverts even if dry."
+    },
+    {
+      "t": "2021-03-08T14:42:00-10:00",
+      "type": "dam_status",
+      "source": "Maui Emergency Management Agency",
+      "tier": 1,
+      "severity": "Extreme",
+      "state": "imminent_failure",
+      "text": "Emergency management reports the imminent failure of Kaupakalua Dam. Anyone downstream is told to move now."
+    },
+    {
+      "t": "2021-03-08T14:50:00-10:00",
+      "type": "dam_status",
+      "source": "East Maui Irrigation / Mahi Pono",
+      "tier": 1,
+      "severity": "Extreme",
+      "state": "overtopping",
+      "text": "Water begins topping the dam embankment."
+    },
+    {
+      "t": "2021-03-08T15:00:00-10:00",
+      "type": "dam_status",
+      "source": "County of Maui / Maui Emergency Management Agency",
+      "tier": 1,
+      "severity": "Extreme",
+      "state": "crested",
+      "time_approx": true,
+      "text": "Kaupakalua Dam crests over the top amid heavy rain and flash-flood-warning conditions."
+    },
+    {
+      "t": "2021-03-08T15:04:00-10:00",
+      "type": "evac_order",
+      "source": "Maui Emergency Management Agency",
+      "tier": 1,
+      "severity": "Extreme",
+      "evac_area": "Everyone downstream of Kaupakalua Dam in Haiku",
+      "target_shelter": "Paia Community Center",
+      "also_open": ["Hana High School"],
+      "reason": "Heavy rains have caused the dam to crest. Shelters are opening at Paia Community Center and Hana High School; people are told to stay away from the area.",
+      "text": "Evacuations ordered for everyone downstream of Kaupakalua Dam in Haiku. Shelters opening at Paia Community Center and Hana High School."
+    },
+    {
+      "t": "2021-03-08T15:21:00-10:00",
+      "type": "dam_status",
+      "source": "Maui Emergency Management Agency",
+      "tier": 1,
+      "severity": "Extreme",
+      "state": "reported_failure_later_retracted",
+      "text": "MEMA reports a possible 'failure' of the reservoir dam in Haiku and urges anyone downstream to evacuate now. Officials later determine the water was overtopping the dam, not a structural breach."
+    },
+    {
+      "t": "2021-03-08T15:30:00-10:00",
+      "type": "road_closure",
+      "source": "The Maui News / County of Maui",
+      "tier": 2,
+      "severity": "Severe",
+      "status": "closed",
+      "time_approx": true,
+      "roads": ["Kaupakalua Road", "Hana Highway near West Kuiaha Road"],
+      "text": "Swollen streams spill onto Kaupakalua Road, turning a line of traffic around. Swift-moving floodwater swallows a stretch of Hana Highway near West Kuiaha Road, cutting off passage in several directions."
+    },
+    {
+      "t": "2021-03-08T15:36:00-10:00",
+      "type": "evac_order",
+      "source": "County of Maui",
+      "tier": 1,
+      "severity": "Extreme",
+      "evac_area": "Vicinity of Kaupakalua Dam and makai of Kaupakalua Road",
+      "target_shelter": "Paia Community Center",
+      "also_open": ["Hana High School"],
+      "reason": "County confirms the dam has overflowed; people near heavily flowing streams should also seek higher ground.",
+      "roads": ["West Kuiaha Road at Hana Highway"],
+      "text": "Evacuations ongoing in Haiku for everyone in the vicinity of the dam and makai of Kaupakalua Road. County confirms the dam overflowed; a road closure is in effect at West Kuiaha and Hana Highway."
+    },
+    {
+      "t": "2021-03-08T15:45:00-10:00",
+      "type": "road_closure",
+      "source": "The Maui News / Hawaii News Now",
+      "tier": 2,
+      "severity": "Severe",
+      "status": "closed",
+      "time_approx": true,
+      "roads": ["Peahi Road bridge", "Kaupakalua Bridge"],
+      "text": "A bridge on Peahi Road is toppled by floodwaters by mid-afternoon, cutting off an eastern route; a large section of asphalt is gone. Kaupakalua Bridge is heavily damaged."
+    },
+    {
+      "t": "2021-03-08T16:04:00-10:00",
+      "type": "evac_order",
+      "source": "County of Maui / Maui Police",
+      "tier": 1,
+      "severity": "Extreme",
+      "evac_area": "All residents downstream of the dam in Haiku and Pauwela",
+      "target_shelter": "Paia Community Center",
+      "also_open": ["Hana High School"],
+      "reason": "Police go door to door, evacuating some residents and warning others to be ready.",
+      "time_approx": true,
+      "text": "After going door to door in Haiku and Pauwela, officials order all downstream residents to evacuate."
+    },
+    {
+      "t": "2021-03-08T16:11:00-10:00",
+      "type": "road_closure",
+      "source": "County of Maui",
+      "tier": 1,
+      "severity": "Severe",
+      "status": "closed",
+      "roads": ["Makawao Avenue at Piiholo Road", "Makawao Avenue near Kokomo Road", "Baldwin Road", "Brewer Road", "Kee Road", "Peahi Road", "Makani Road at Old Haleakala Highway", "Kaupakalua Road past West Kuiaha Road (between Lepo and Pakanu streets)", "Hana Highway from Peahi Road to Keanae"],
+      "text": "Multiple road closures in effect across Haiku and Upcountry. All County of Maui parks are closing for the rest of the day due to heavy rain and flooding."
+    },
+    {
+      "t": "2021-03-08T16:11:00-10:00",
+      "type": "resource",
+      "source": "County of Maui / American Red Cross",
+      "tier": 1,
+      "severity": "Moderate",
+      "shelter": "Eddie Tam Memorial Center",
+      "status": "open",
+      "staffed_by": "American Red Cross",
+      "text": "Eddie Tam Center in Makawao opens as a third shelter alongside Paia Community Center and Hana High School; the Red Cross staffs the shelters."
+    },
+    {
+      "t": "2021-03-08T16:37:00-10:00",
+      "type": "report",
+      "source": "County of Maui (Mayor Victorino)",
+      "tier": 1,
+      "severity": "Severe",
+      "time_approx": true,
+      "zones": ["Haiku", "Pauwela"],
+      "text": "Mayor surveys Haiku: about a half dozen homes heavily damaged or destroyed, Kaupakalua Road impassable in places, and evidence of landslides. Fire crews respond to more than a dozen calls from residents trapped by rising water."
+    },
+    {
+      "t": "2021-03-08T17:00:00-10:00",
+      "type": "dam_status",
+      "source": "East Maui Irrigation / Mahi Pono",
+      "tier": 1,
+      "severity": "Severe",
+      "state": "overtopping_stopped",
+      "time_approx": true,
+      "text": "By about 5 p.m. the overtopping of the dam has stopped; crews continue to monitor water levels until they return to a safe level."
+    },
+    {
+      "t": "2021-03-08T17:05:00-10:00",
+      "type": "report",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Moderate",
+      "text": "Rainfall in the 24 hours ending 5 p.m. Monday: 10.38 in at West Wailuaiki near Keanae, 4.79 in in Haiku, 6.09 in at Puu Kukui in the West Maui Mountains, and 1.35 in in Pukalani."
+    },
+    {
+      "t": "2021-03-08T18:15:00-10:00",
+      "type": "resource",
+      "source": "County of Maui",
+      "tier": 1,
+      "severity": "Moderate",
+      "shelter": "Paia Community Center",
+      "status": "open",
+      "text": "As of 6:15 p.m. no evacuees are logged at Paia Community Center; shelters at Paia, Hana High School and Eddie Tam Center remain available."
+    },
+    {
+      "t": "2021-03-08T18:42:00-10:00",
+      "type": "road_closure",
+      "source": "County of Maui / Hawaii DOT",
+      "tier": 1,
+      "severity": "Moderate",
+      "status": "reopened",
+      "roads": ["Hana Highway from Peahi Road to Keanae"],
+      "still_closed": ["Kaupakalua Road"],
+      "text": "Hana Highway reopens from Peahi Road to Keanae; motorists are urged to use extreme caution for debris and possible landslides. Kaupakalua Road remains closed as of 6:42 p.m."
+    },
+    {
+      "t": "2021-03-08T19:47:00-10:00",
+      "type": "dam_status",
+      "source": "Maui Emergency Management Agency / National Weather Service",
+      "tier": 1,
+      "severity": "Severe",
+      "state": "receded",
+      "text": "Flood Warning canceled: high water levels threatening the dam's structural integrity have receded and 'imminent failure' is no longer expected. A Flash Flood Watch remains in effect until 6 a.m. Wednesday; any further heavy rain near the dam could prompt a short-notice warning downstream."
+    },
+    {
+      "t": "2021-03-08T21:45:00-10:00",
+      "type": "evac_order",
+      "source": "County of Maui / American Red Cross",
+      "tier": 1,
+      "severity": "Moderate",
+      "evac_area": "Vicinity and downstream of Kaupakalua Dam, makai of Kaupakalua Road",
+      "target_shelter": "Paia Community Center",
+      "also_open": ["Hana High School"],
+      "standby": ["Eddie Tam Memorial Center"],
+      "reason": "Officials ask evacuees not to return until an 'all clear' is given, even if conditions appear to improve.",
+      "text": "Evacuees advised not to return home until it is safe. Shelters remain open at Paia Community Center and Hana High School, with Eddie Tam Center on standby; about 30 people shelter overnight."
+    },
+    {
+      "t": "2021-03-08T22:05:00-10:00",
+      "type": "flood_extent",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Severe",
+      "valid_until": "2021-03-09T03:30:00-10:00",
+      "zones": ["Haiku", "Hana", "Kaupo", "East Maui"],
+      "text": "Flash Flood Warning for Maui in effect until 3:30 a.m. as heavy rain continues over East Maui."
+    },
+    {
+      "t": "2021-03-09T00:20:00-10:00",
+      "type": "flood_extent",
+      "source": "National Weather Service",
+      "tier": 1,
+      "severity": "Severe",
+      "valid_until": "2021-03-09T03:30:00-10:00",
+      "zones": ["Haiku", "Hana", "Kaupo", "Nahiku", "Kipahulu"],
+      "text": "Flash Flood Warning extended until 3:30 a.m. Radar shows heavy rain over East Maui from Haiku to Hana to Kaupo at 1-2 in/hr, with area streams running very high; more heavy rain is expected to move onshore."
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "_note": "Hard-coded resident profile for the demo. Identity + home are taken from mock-user-location-feed.json's `user` block; the personalization fields (has_car, mobility_needs, pets, language) are demo assumptions for the 'Family of five' household — edit them to drive different reconcile() outputs, then re-run `npm run demo:build`.",
+  "id": 1,
+  "name": "Family of five",
+  "phone": "+1XXXXXXXXXX",
+  "home": {
+    "lat": 20.875,
+    "lng": -156.675,
+    "zip": "96761",
+    "label": "Lahaina, HI"
+  },
+  "household_size": 5,
+  "has_car": true,
+  "mobility_needs": "none",
+  "pets": true,
+  "language": "en"
+}

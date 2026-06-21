@@ -5,6 +5,10 @@
   "scripts": {
     "pipeline": "tsx src/pipeline.ts",
     "server": "tsx src/server.ts",
+    "demo:build": "tsx demo-data/build-demo-db.ts",
+    "demo:replay": "tsx demo-data/replay.ts",
+    "demo:test": "tsx demo-data/replay.test.ts",
+    "demo:drive": "tsx src/drive.ts",
     "test:env": "tsx -e \"console.log('env ok')\""
   },
   "dependencies": {
