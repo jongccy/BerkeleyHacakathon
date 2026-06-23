@@ -89,16 +89,16 @@ let openEditorListId = null;
 let reviewAddressSelection = null;
 
 const PROFILE_KEYS = [
-  { key: "name", label: "Your name" },
+  { key: "name", label: "Name" },
   { key: "phone", label: "Mobile number" },
   { key: "birth_date", label: "Date of birth", readonly: true },
   ...REVIEW_KEYS,
 ];
 
 const DEPENDENT_MOCK_DETAILS = [
-  { name: "Maya", location: "140 Kupuohi St, Lahaina, HI 96761", status: "Needs pickup", dot: "warn", mapX: 64, mapY: 34 },
-  { name: "Jordan", location: "45 Kaiwili St, Lahaina, HI 96761", status: "Safe", dot: "safe", mapX: 28, mapY: 56 },
-  { name: "Sam", location: "225 Piikea Ave, Kihei, HI 96753", status: "Safe", dot: "safe", mapX: 74, mapY: 64 },
+  { name: "Maya", location: "140 Kupuohi St, Lahaina, HI 96761", lat: 20.8856, lng: -156.6694, status: "Needs pickup", dot: "warn", phone: "+1 (808) 555-0198" },
+  { name: "Jordan", location: "45 Kaiwili St, Lahaina, HI 96761", lat: 20.8736, lng: -156.6761, status: "Safe", dot: "safe", phone: "+1 (808) 555-0144" },
+  { name: "Sam", location: "225 Piikea Ave, Kihei, HI 96753", lat: 20.7547, lng: -156.4558, status: "Safe", dot: "safe", phone: "+1 (808) 555-0162" },
 ];
 
 const DEFAULT_CHECKIN_MESSAGE = "Are you safe? Reply YES.";
@@ -120,6 +120,13 @@ const state = {
   routeDestination: null,
   routeSource: null,
   shelters: null,
+  mapFullscreenOpen: false,
+  selectedMapMemberId: null,
+  leaflet: {
+    preview: null,
+    fullscreen: null,
+    layers: { preview: null, fullscreen: null },
+  },
 };
 
 let isTransitioning = false;
@@ -199,22 +206,6 @@ function getPrevStep(from) {
   return from - 1;
 }
 
-function updateProgressLabel() {
-  const el = $("progress-label");
-  if (!el) return;
-  if (state.step === 0) {
-    el.textContent = "";
-    return;
-  }
-  if (state.step >= 2 && state.step <= 8) {
-    el.textContent = `Question ${state.step - 1} of 7`;
-  } else if (state.step === 10) {
-    el.textContent = "Review";
-  } else {
-    el.textContent = "Profile setup";
-  }
-}
-
 async function goToStep(next) {
   if (isTransitioning) return;
 
@@ -234,7 +225,6 @@ async function goToStep(next) {
     }
 
     state.step = next;
-    updateProgressLabel();
 
     target.classList.add("is-active", "is-animating");
     await triggerEnterAnimation(target);
@@ -267,10 +257,15 @@ function goBack() {
 
 function validateStep(step) {
   if (step === 1) {
-    const name = $("name").value.trim();
+    const firstNameVal = $("first-name").value.trim();
+    const lastNameVal = $("last-name").value.trim();
     const phone = $("phone").value.trim();
-    if (!name) {
-      $("name").focus();
+    if (!firstNameVal) {
+      $("first-name").focus();
+      return false;
+    }
+    if (!lastNameVal) {
+      $("last-name").focus();
       return false;
     }
     if (!isPhoneComplete(phone)) {
@@ -292,7 +287,9 @@ function validateStep(step) {
     }
     setPhoneHint("");
     setDobHint("");
-    state.data.name = name;
+    state.data.first_name = firstNameVal;
+    state.data.last_name = lastNameVal;
+    state.data.name = `${firstNameVal} ${lastNameVal}`;
     state.data.phone = formatPhoneDisplay(phone);
     state.data.birth_date = formatBirthDate(month, day, year);
     state.data.age = computeAge(month, day, year);
@@ -769,7 +766,7 @@ function initAddress() {
 
 function displayValue(key) {
   const val = state.data[key];
-  if (key === "name") return state.data.name || "—";
+  if (key === "name") return fullName(state.data);
   if (key === "phone") return state.data.phone || "—";
   if (key === "birth_date") {
     if (!state.data.birth_date) return "—";
@@ -818,8 +815,15 @@ function renderReview() {
 function buildReviewEditorHtml(key) {
   if (key === "name") {
     return `<div class="review-editor">
-      <div class="field">
-        <input type="text" class="review-editor__text-input" data-profile-field="name" value="${escapeHtml(state.data.name || "")}" placeholder="First name">
+      <div class="name-fields">
+        <div class="field">
+          <label>First name</label>
+          <input type="text" class="review-editor__text-input" data-profile-field="first_name" value="${escapeHtml(state.data.first_name || "")}" placeholder="First">
+        </div>
+        <div class="field">
+          <label>Last name</label>
+          <input type="text" class="review-editor__text-input" data-profile-field="last_name" value="${escapeHtml(state.data.last_name || "")}" placeholder="Last">
+        </div>
       </div>
       <button type="button" class="btn btn--primary btn--sm review-editor__done">Save</button>
     </div>`;
@@ -1013,8 +1017,8 @@ function refreshPlatformAfterProfileEdit() {
   renderPrepList();
   const greeting = $("platform-greeting");
   const avatar = $("platform-avatar");
-  if (greeting) greeting.textContent = `Hi, ${firstName(state.data.name)}`;
-  if (avatar) avatar.textContent = initials(state.data.name);
+  if (greeting) greeting.textContent = `Hi, ${firstName(state.data.first_name || state.data.name)}`;
+  if (avatar) avatar.textContent = initials(fullName(state.data));
 }
 
 function applyFieldEdit(key, value, listId) {
@@ -1085,17 +1089,30 @@ function applyFieldAccessibility(item, listId) {
 }
 
 function applyProfileTextField(item, key, listId) {
-  const input = item.querySelector(`[data-profile-field="${key}"]`);
-  if (!input) return;
   if (key === "name") {
-    const name = input.value.trim();
-    if (!name) {
-      input.focus();
+    const first = item.querySelector('[data-profile-field="first_name"]')?.value.trim() || "";
+    const last = item.querySelector('[data-profile-field="last_name"]')?.value.trim() || "";
+    if (!first) {
+      item.querySelector('[data-profile-field="first_name"]')?.focus();
       return;
     }
-    state.data.name = name;
-    $("name").value = name;
+    if (!last) {
+      item.querySelector('[data-profile-field="last_name"]')?.focus();
+      return;
+    }
+    state.data.first_name = first;
+    state.data.last_name = last;
+    state.data.name = `${first} ${last}`;
+    $("first-name").value = first;
+    $("last-name").value = last;
+    updateEditableItemValue(key, listId);
+    closeEditor(key, listId);
+    refreshPlatformAfterProfileEdit();
+    return;
   }
+
+  const input = item.querySelector(`[data-profile-field="${key}"]`);
+  if (!input) return;
   if (key === "phone") {
     const phone = input.value.trim();
     if (!isPhoneComplete(phone)) {
@@ -1186,7 +1203,7 @@ function buildApiProfile() {
   else if (d.vulnerable === "both") mobilityParts.push("infants under 2 and seniors 75+ in group");
 
   return {
-    name: d.name,
+    name: fullName(d),
     phone: d.phone,
     birth_date: d.birth_date,
     age: d.age,
@@ -1216,6 +1233,13 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+function fullName(data) {
+  const first = data?.first_name?.trim();
+  const last = data?.last_name?.trim();
+  if (first && last) return `${first} ${last}`;
+  return data?.name?.trim() || "—";
+}
+
 function initials(name) {
   const parts = String(name || "?").trim().split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -1228,17 +1252,20 @@ function firstName(name) {
 
 function buildFamilyMembers() {
   const d = state.data;
+  const home = getUserGeo();
   const members = [
     {
       id: "user",
-      name: d.name || "You",
+      name: fullName(d) || "You",
+      phone: d.phone || "",
       status: "Safe",
       detail: shortAddress(d.address),
-      location: shortAddress(d.address),
+      location: d.address || shortAddress(d.address),
+      lat: home.lat,
+      lng: home.lng,
       dot: "safe",
-      mapX: 48,
-      mapY: 50,
       isYou: true,
+      lastSeen: "Just now",
     },
   ];
 
@@ -1248,13 +1275,15 @@ function buildFamilyMembers() {
     members.push({
       id: `dep-${i + 1}`,
       name: mock.name,
+      phone: mock.phone || "",
       status: mock.status,
       detail: mock.location,
       location: mock.location,
+      lat: mock.lat,
+      lng: mock.lng,
       dot: mock.dot,
-      mapX: mock.mapX,
-      mapY: mock.mapY,
       isYou: false,
+      lastSeen: i === 0 ? "8 min ago" : "12 min ago",
     });
   }
 
@@ -1266,11 +1295,12 @@ function buildFamilyMembers() {
       status: "Invite pending",
       detail: "Awaiting response",
       location: "Location pending",
+      lat: home.lat + 0.003 * (i + 1),
+      lng: home.lng + 0.0025 * (i + 1),
       dot: "transit",
-      mapX: 20 + ((i * 12) % 40),
-      mapY: 30 + ((i * 15) % 35),
       isYou: false,
       invited: true,
+      lastSeen: "—",
     });
   });
 
@@ -1285,6 +1315,61 @@ function needsAttention() {
     d.evacuating === "small" ||
     d.evacuating === "large"
   );
+}
+
+const UPDATE_SOURCE_URLS = [
+  ["national weather service", "https://www.weather.gov/hfo/"],
+  ["maui county", "https://www.mauicounty.gov/983/MEMA-Alerts"],
+  ["county civil defense", "https://www.mauicounty.gov/983/MEMA-Alerts"],
+  ["civil defense", "https://www.mauicounty.gov/983/MEMA-Alerts"],
+  ["wireless emergency alert", "https://www.fcc.gov/consumers/guides/wireless-emergency-alerts-wea"],
+  ["maui fire", "https://www.mauifire.gov/"],
+  ["maui now", "https://mauinow.com/2021/03/08/breaking-maui-kaupakalua-dam-overflows-evacuations-ordered-haiku/"],
+  ["maui news", "https://www.mauinews.com/news/local-news/2021/03/water-crests-dam-destroys-bridge-and-damages-homes/"],
+  ["hawaii news now", "https://www.hawaiinewsnow.com/2021/03/08/flash-flood-watch-issued-big-island-maui-county/"],
+  ["civil beat", "https://civilbeat.org/2021/03/maui-area-evacuated-after-heavy-rains-cause-dam-to-overflow/"],
+  ["honolulu star-advertiser", "https://www.staradvertiser.com/"],
+];
+
+function getUpdateArticleUrl(alert) {
+  if (alert?.url) return alert.url;
+  if (alert?.article_url) return alert.article_url;
+  const src = String(alert?.source || "");
+  if (/^https?:\/\//i.test(src)) return src;
+  const lower = src.toLowerCase();
+  for (const [needle, url] of UPDATE_SOURCE_URLS) {
+    if (lower.includes(needle)) return url;
+  }
+  return null;
+}
+
+function getUpdateSourceLabel(alert) {
+  const src = String(alert?.source || "Official source");
+  if (/^https?:\/\//i.test(src)) {
+    try {
+      return new URL(src).hostname.replace(/^www\./, "");
+    } catch {
+      return "Official source";
+    }
+  }
+  return src;
+}
+
+function renderUpdateSourceHead(alert) {
+  const label = escapeHtml(getUpdateSourceLabel(alert));
+  const url = getUpdateArticleUrl(alert);
+  if (!url) return `<p class="update-card__source">${label}</p>`;
+  const safeUrl = escapeHtml(url);
+  const aria = escapeHtml(`Read full article at ${getUpdateSourceLabel(alert)} (opens in new tab)`);
+  return `<p class="update-card__source"><a href="${safeUrl}" class="update-card__source-link" target="_blank" rel="noopener noreferrer" aria-label="${aria}">${label}</a></p>`;
+}
+
+function renderUpdateReadMore(alert) {
+  const url = getUpdateArticleUrl(alert);
+  if (!url) return "";
+  const safeUrl = escapeHtml(url);
+  const aria = escapeHtml(`Read full article from ${getUpdateSourceLabel(alert)} (opens in new tab)`);
+  return `<a href="${safeUrl}" class="update-card__read-more" target="_blank" rel="noopener noreferrer" aria-label="${aria}">Read full article<span aria-hidden="true"> →</span></a>`;
 }
 
 function categorizeUpdate(alert) {
@@ -1487,22 +1572,317 @@ function renderUpdatePersonalStatus(alert) {
       </div>`;
 }
 
-const MAP_BOUNDS = {
-  minLat: 20.75,
-  maxLat: 20.9,
-  minLng: -156.69,
-  maxLng: -156.44,
+const MAP_TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+const MAP_TILE_OPTS = {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; CARTO',
+  subdomains: "abcd",
+  maxZoom: 19,
 };
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+function memberMarkerHtml(member) {
+  const cls =
+    member.isYou ? "map-member-marker__bubble--you" :
+    member.dot === "warn" ? "map-member-marker__bubble--warn" : "";
+  const label = member.isYou ? "You" : initials(member.name);
+  return `<div class="map-member-marker__bubble ${cls}" aria-hidden="true">${escapeHtml(label)}</div>`;
 }
 
-function latLngToMapPercent(lat, lng) {
-  const { minLat, maxLat, minLng, maxLng } = MAP_BOUNDS;
-  const mapX = ((lng - minLng) / (maxLng - minLng)) * 100;
-  const mapY = ((maxLat - lat) / (maxLat - minLat)) * 100;
-  return { mapX: clamp(mapX, 6, 94), mapY: clamp(mapY, 8, 92) };
+function createMemberIcon(member) {
+  const markerClass = member.isYou
+    ? "map-member-marker map-member-marker--you"
+    : `map-member-marker map-member-marker--${member.dot}`;
+  return L.divIcon({
+    className: markerClass,
+    html: memberMarkerHtml(member),
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+  });
+}
+
+function getLeafletLayers(key) {
+  const existing = state.leaflet.layers[key];
+  if (!existing?.markers) {
+    state.leaflet.layers[key] = {
+      markers: L.layerGroup(),
+      route: L.layerGroup(),
+      shelter: L.layerGroup(),
+    };
+  }
+  return state.leaflet.layers[key];
+}
+
+function destroyLeafletMap(key) {
+  const map = state.leaflet[key];
+  if (map) {
+    map.remove();
+    state.leaflet[key] = null;
+    state.leaflet.layers[key] = null;
+  }
+}
+
+function createLeafletMap(containerId, { interactive }) {
+  if (typeof L === "undefined") return null;
+  const center = getUserGeo();
+  const map = L.map(containerId, {
+    center: [center.lat, center.lng],
+    zoom: 13,
+    zoomControl: false,
+    attributionControl: interactive,
+    dragging: interactive,
+    touchZoom: interactive,
+    doubleClickZoom: interactive,
+    scrollWheelZoom: interactive,
+    boxZoom: interactive,
+    keyboard: interactive,
+  });
+  L.tileLayer(MAP_TILE_URL, MAP_TILE_OPTS).addTo(map);
+  const layers = getLeafletLayers(containerId === "home-map-preview" ? "preview" : "fullscreen");
+  layers.markers.addTo(map);
+  layers.route.addTo(map);
+  layers.shelter.addTo(map);
+  return map;
+}
+
+function syncMapMarkers(key) {
+  const mapKey = key === "fullscreen" ? "fullscreen" : "preview";
+  const map = state.leaflet[mapKey];
+  if (!map) return;
+  const layers = getLeafletLayers(mapKey);
+  layers.markers.clearLayers();
+  const members = buildFamilyMembers();
+  const bounds = [];
+
+  for (const member of members) {
+    if (typeof member.lat !== "number" || typeof member.lng !== "number") continue;
+    bounds.push([member.lat, member.lng]);
+    const marker = L.marker([member.lat, member.lng], {
+      icon: createMemberIcon(member),
+      riseOnHover: true,
+    });
+    if (mapKey === "fullscreen") {
+      marker.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        if (member.isYou) {
+          hideMapPersonCard();
+          showMapGuidanceCard();
+        } else {
+          showMapPersonCard(member);
+        }
+      });
+    }
+    marker.addTo(layers.markers);
+  }
+
+  if (bounds.length) {
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: mapKey === "preview" ? 13 : 14 });
+  } else {
+    const c = getUserGeo();
+    map.setView([c.lat, c.lng], 13);
+  }
+}
+
+function syncMapRoute() {
+  const keys = ["preview", "fullscreen"];
+  for (const mapKey of keys) {
+    const map = state.leaflet[mapKey];
+    if (!map) continue;
+    const layers = getLeafletLayers(mapKey);
+    layers.route.clearLayers();
+    layers.shelter.clearLayers();
+
+    if (!state.showEvacuationRoute) continue;
+
+    const dest = getRouteDestination();
+    const geo = getUserGeo();
+    if (typeof dest.lat === "number" && typeof dest.lng === "number") {
+      if (state.mapRouteLineVisible) {
+        L.polyline(
+          [[geo.lat, geo.lng], [dest.lat, dest.lng]],
+          { color: "#c45c48", weight: 5, opacity: 0.9, dashArray: "8 6", lineCap: "round" }
+        ).addTo(layers.route);
+      }
+      L.marker([dest.lat, dest.lng], {
+        icon: L.divIcon({
+          className: "map-member-marker",
+          html: '<div class="map-member-marker__bubble map-member-marker__bubble--warn">S</div>',
+          iconSize: [44, 44],
+          iconAnchor: [22, 22],
+        }),
+      }).addTo(layers.shelter);
+    }
+  }
+  renderHomeRouteBanner();
+}
+
+function renderHomeRouteBanner() {
+  const el = $("home-route-banner");
+  if (!el) return;
+  if (!state.showEvacuationRoute) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  const dest = getRouteDestination();
+  const routeTitle = state.routeSource === "nearest" ? "Nearest shelter" : "Evacuation route";
+  const distanceLine = dest.distanceMi ? `${dest.distanceMi} mi away · ` : "";
+  const directions = dest.directions || state.guidance?.how_to_get_there || "Follow designated evacuation routes.";
+  el.hidden = false;
+  el.innerHTML = `
+    <p class="home-route-banner__title">${escapeHtml(routeTitle)}</p>
+    <p class="home-route-banner__dest">${escapeHtml(dest.label || "Shelter")}</p>
+    <p>${escapeHtml(distanceLine)}${escapeHtml(directions)}</p>
+    ${!state.mapRouteLineVisible ? '<button type="button" class="map-person-card__btn map-person-card__btn--primary" id="btn-home-view-route" style="margin-top:0.75rem;width:100%">View route on map</button>' : ""}
+  `;
+  $("btn-home-view-route")?.addEventListener("click", () => {
+    state.mapRouteLineVisible = true;
+    openMapFullscreen();
+    syncMapRoute();
+  });
+}
+
+function initMapPreview() {
+  if (typeof L === "undefined") return;
+  const container = $("home-map-preview");
+  if (!container || state.leaflet.preview) return;
+  try {
+    destroyLeafletMap("preview");
+    const map = createLeafletMap("home-map-preview", { interactive: false });
+    if (!map) return;
+    state.leaflet.preview = map;
+    syncMapMarkers("preview");
+    syncMapRoute();
+    setTimeout(() => map.invalidateSize(), 120);
+  } catch (err) {
+    console.error("Map preview failed to load", err);
+  }
+}
+
+function openMapFullscreen() {
+  const overlay = $("map-fullscreen");
+  if (!overlay) return;
+  overlay.hidden = false;
+  state.mapFullscreenOpen = true;
+  $("app")?.classList.add("is-map-fullscreen");
+  document.body.style.overflow = "hidden";
+
+  destroyLeafletMap("fullscreen");
+  const map = createLeafletMap("map-fullscreen-container", { interactive: true });
+  state.leaflet.fullscreen = map;
+  syncMapMarkers("fullscreen");
+  syncMapRoute();
+
+  setTimeout(() => {
+    map?.invalidateSize();
+    const members = buildFamilyMembers();
+    const bounds = members.filter((m) => typeof m.lat === "number").map((m) => [m.lat, m.lng]);
+    if (bounds.length) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
+  }, 80);
+}
+
+function closeMapFullscreen() {
+  const overlay = $("map-fullscreen");
+  if (!overlay) return;
+  overlay.hidden = true;
+  state.mapFullscreenOpen = false;
+  $("app")?.classList.remove("is-map-fullscreen");
+  hideMapPersonCard();
+  document.body.style.overflow = "";
+  destroyLeafletMap("fullscreen");
+  syncMapMarkers("preview");
+  syncMapRoute();
+}
+
+function hideMapPersonCard() {
+  const card = $("map-person-card");
+  if (!card) return;
+  card.hidden = true;
+  card.innerHTML = "";
+  state.selectedMapMemberId = null;
+}
+
+function mapsDirectionsUrl(lat, lng) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}`;
+}
+
+function showMapGuidanceCard() {
+  const card = $("map-person-card");
+  const g = state.guidance;
+  if (!card || !g) return;
+  card.className = "map-person-card map-guidance-card";
+  card.hidden = false;
+  const action = g.recommended_action || "Follow official guidance.";
+  const dest = g.destination ? `Shelter: ${g.destination}` : "";
+  card.innerHTML = `
+    <div class="map-person-card__head">
+      <div class="map-person-card__avatar map-member-marker__bubble--you">${escapeHtml(initials(fullName(state.data)))}</div>
+      <div class="map-person-card__meta">
+        <p class="map-person-card__name">Your guidance</p>
+        <p class="map-person-card__status">${escapeHtml(action)}</p>
+        ${dest ? `<p class="map-person-card__detail">${escapeHtml(dest)}</p>` : ""}
+      </div>
+      <button type="button" class="map-person-card__close" id="map-person-card-close" aria-label="Close">×</button>
+    </div>
+    <div class="map-person-card__actions">
+      <button type="button" class="map-person-card__btn map-person-card__btn--primary" id="map-guidance-route-btn">View evacuation route</button>
+      <button type="button" class="map-person-card__btn" id="map-guidance-close-btn">Close</button>
+    </div>
+  `;
+  $("map-person-card-close")?.addEventListener("click", hideMapPersonCard);
+  $("map-guidance-close-btn")?.addEventListener("click", hideMapPersonCard);
+  $("map-guidance-route-btn")?.addEventListener("click", async () => {
+    hideMapPersonCard();
+    await showGuidanceRoute();
+    syncMapRoute();
+  });
+}
+
+function showMapPersonCard(member) {
+  const card = $("map-person-card");
+  if (!card || member.isYou) return;
+  state.selectedMapMemberId = member.id;
+  const cardTheme =
+    member.dot === "warn" ? " map-person-card--warn" :
+    member.dot === "safe" ? " map-person-card--safe" : "";
+  card.className = `map-person-card${cardTheme}`;
+  card.hidden = false;
+
+  const statusClass =
+    member.dot === "warn" ? "map-person-card__status--warn" :
+    member.dot === "safe" ? "map-person-card__status--safe" : "";
+  const avatarClass =
+    member.dot === "warn" ? " map-person-card__avatar--warn" :
+    member.dot === "safe" ? " map-person-card__avatar--safe" : "";
+  const phone = member.phone ? member.phone.replace(/\D/g, "").length >= 10 : false;
+  const tel = phone ? `tel:${member.phone.replace(/[^\d+]/g, "")}` : "";
+  const dirUrl = mapsDirectionsUrl(member.lat, member.lng);
+
+  card.innerHTML = `
+    <div class="map-person-card__head">
+      <div class="map-person-card__avatar${avatarClass}">${escapeHtml(initials(member.name))}</div>
+      <div class="map-person-card__meta">
+        <p class="map-person-card__name">${escapeHtml(member.name)}</p>
+        <p class="map-person-card__status ${statusClass}">${escapeHtml(member.status)}</p>
+        <p class="map-person-card__detail">${escapeHtml(member.location)}</p>
+        <p class="map-person-card__seen">Last seen · ${escapeHtml(member.lastSeen || "Recently")}</p>
+      </div>
+      <button type="button" class="map-person-card__close" id="map-person-card-close" aria-label="Close">×</button>
+    </div>
+    <div class="map-person-card__actions">
+      ${phone ? `<a class="map-person-card__btn" href="${escapeHtml(tel)}">Call</a>` : ""}
+      <button type="button" class="map-person-card__btn" data-map-checkin="${escapeHtml(member.id)}">Check-in</button>
+      <button type="button" class="map-person-card__btn" data-map-directions="${escapeHtml(dirUrl)}">Directions</button>
+    </div>
+  `;
+
+  $("map-person-card-close")?.addEventListener("click", hideMapPersonCard);
+  card.querySelector("[data-map-checkin]")?.addEventListener("click", () => {
+    hideMapPersonCard();
+    closeMapFullscreen();
+    openBroadcastSheet(member.id);
+  });
+  card.querySelector("[data-map-directions]")?.addEventListener("click", () => {
+    window.open(dirUrl, "_blank", "noopener,noreferrer");
+  });
 }
 
 function getUserGeo() {
@@ -1613,11 +1993,10 @@ function findNearestShelter(shelters) {
   }
 
   if (!nearest) return null;
-  const { mapX, mapY } = latLngToMapPercent(nearest.lat, nearest.lng);
   return {
     shelter: nearest,
-    mapX,
-    mapY,
+    lat: nearest.lat,
+    lng: nearest.lng,
     label: nearest.name,
     distanceMi: (minDist * 0.621371).toFixed(1),
     directions: buildShelterDirections(nearest),
@@ -1629,10 +2008,9 @@ function shelterFromGuidance() {
   if (!destName || !state.shelters?.length) return null;
   const shelter = state.shelters.find((s) => destName.includes(s.name.toLowerCase()));
   if (!shelter) return null;
-  const { mapX, mapY } = latLngToMapPercent(shelter.lat, shelter.lng);
   return {
-    mapX,
-    mapY,
+    lat: shelter.lat,
+    lng: shelter.lng,
     label: shelter.name,
     directions: buildShelterDirections(shelter),
   };
@@ -1642,10 +2020,11 @@ function getRouteDestination() {
   if (state.routeDestination) return state.routeDestination;
   const fromGuidance = shelterFromGuidance();
   if (fromGuidance) return fromGuidance;
+  const geo = getUserGeo();
   const destName = state.guidance?.destination || "";
   return {
-    mapX: 56,
-    mapY: 24,
+    lat: geo.lat + 0.02,
+    lng: geo.lng + 0.02,
     label: destName || "Evacuation shelter",
     directions: state.guidance?.how_to_get_there || "Follow designated evacuation routes.",
   };
@@ -1658,81 +2037,20 @@ function updateMapNavButtons() {
   );
 }
 
-function buildMapRouteBanner(dest, routeTitle, showViewRouteBtn) {
-  const distanceLine = dest.distanceMi ? `${dest.distanceMi} mi away · ` : "";
-  const directions = dest.directions || state.guidance?.how_to_get_there || "Follow designated evacuation routes.";
-  const routeBtn = showViewRouteBtn
-    ? `<button type="button" class="platform-map__route-btn" data-map-view-route>View route</button>`
-    : "";
-
-  return `
-    <div class="platform-map__route-banner">
-      <div class="platform-map__route-head${routeBtn ? " platform-map__route-head--with-action" : ""}">
-        <div class="platform-map__route-copy">
-          <p class="platform-map__route-title">${escapeHtml(routeTitle)}</p>
-          <p class="platform-map__route-dest">${escapeHtml(dest.label)}</p>
-        </div>
-        ${routeBtn}
-      </div>
-      <p class="platform-map__route-detail">${escapeHtml(distanceLine)}${escapeHtml(directions)}</p>
-    </div>`;
-}
-
 function renderMapRoute() {
-  const layer = $("map-route-layer");
-  const map = $("home-map");
-  if (!layer) return;
-
-  if (!state.showEvacuationRoute) {
-    layer.hidden = true;
-    layer.innerHTML = "";
-    map?.classList.remove("is-showing-route", "is-showing-panel");
-    updateMapNavButtons();
-    return;
-  }
-
-  const dest = getRouteDestination();
-  const routeTitle = state.routeSource === "nearest" ? "Nearest shelter" : "Evacuation route";
-  const showViewRouteBtn = state.routeSource === "nearest" && !state.mapRouteLineVisible;
-  let markup = buildMapRouteBanner(dest, routeTitle, showViewRouteBtn);
-
-  if (state.mapRouteLineVisible) {
-    const geo = getUserGeo();
-    const you = latLngToMapPercent(geo.lat, geo.lng);
-    const x1 = you.mapX;
-    const y1 = you.mapY;
-    const x2 = dest.mapX;
-    const y2 = dest.mapY;
-    const cx = (x1 + x2) / 2;
-    const cy = Math.min(y1, y2) - 10;
-
-    markup = `
-    <svg class="platform-map__route" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="platform-map__route-line" d="M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}" />
-    </svg>
-    <div class="map-pin map-pin--dest" style="left:${dest.mapX}%;top:${dest.mapY}%;">
-      <span class="map-pin__dot"></span>
-      <span class="map-pin__label">${escapeHtml(dest.label.split(" ")[0])}</span>
-      <span class="map-pin__status">Shelter</span>
-    </div>
-    ${markup}`;
-  }
-
-  layer.innerHTML = markup;
-  layer.hidden = false;
-  map?.classList.toggle("is-showing-route", state.mapRouteLineVisible);
-  map?.classList.toggle("is-showing-panel", !state.mapRouteLineVisible);
+  syncMapRoute();
   updateMapNavButtons();
 }
 
 function showMapRouteLine() {
   state.mapRouteLineVisible = true;
   renderMapRoute();
+  openMapFullscreen();
 }
 
 function scrollToEvacuationMap() {
   const scroll = () => {
-    $("home-map")?.scrollIntoView({
+    $("home-map-block")?.scrollIntoView({
       behavior: prefersReducedMotion() ? "auto" : "smooth",
       block: "start",
     });
@@ -1754,6 +2072,7 @@ async function openEvacuationRoute() {
   switchPlatformTab("home");
   await showGuidanceRoute();
   scrollToEvacuationMap();
+  openMapFullscreen();
 }
 
 async function navigateToNearestShelter() {
@@ -1763,8 +2082,8 @@ async function navigateToNearestShelter() {
 
   state.routeSource = "nearest";
   state.routeDestination = {
-    mapX: nearest.mapX,
-    mapY: nearest.mapY,
+    lat: nearest.lat,
+    lng: nearest.lng,
     label: nearest.label,
     distanceMi: nearest.distanceMi,
     directions: nearest.directions,
@@ -1772,6 +2091,7 @@ async function navigateToNearestShelter() {
   state.showEvacuationRoute = true;
   state.mapRouteLineVisible = false;
   renderMapRoute();
+  scrollToEvacuationMap();
 }
 
 function renderHomeGuidance(data) {
@@ -1797,18 +2117,9 @@ function renderHomeGuidance(data) {
 }
 
 function renderMapPins() {
-  const el = $("map-pins");
-  if (!el) return;
-  el.innerHTML = buildFamilyMembers()
-    .map(
-      (m) => `
-    <div class="map-pin map-pin--${m.dot}${m.isYou ? " map-pin--you" : ""}" style="left:${m.mapX}%;top:${m.mapY}%;" title="${escapeHtml(m.name)}">
-      <span class="map-pin__dot"></span>
-      <span class="map-pin__label">${escapeHtml(m.isYou ? "You" : m.name.split(" ")[0])}</span>
-      <span class="map-pin__status">${escapeHtml(m.status)}</span>
-    </div>`
-    )
-    .join("");
+  if (!state.leaflet.preview) initMapPreview();
+  else syncMapMarkers("preview");
+  if (state.mapFullscreenOpen) syncMapMarkers("fullscreen");
 }
 
 function renderFamilyScroll() {
@@ -1950,13 +2261,14 @@ function buildUpdatesHtml(alerts, filter, limit = null) {
       (a) => `
     <article class="update-card">
       <div class="update-card__head">
-        <p class="update-card__source">${escapeHtml(a.source)}</p>
+        ${renderUpdateSourceHead(a)}
         <span class="update-card__time">${updateTimeLabel(a, alerts)}</span>
       </div>
       <span class="update-card__badge">${escapeHtml(a.event)}</span>
       <p class="update-card__text">${escapeHtml(a.text)}</p>
       ${renderUpdatePersonalStatus(a)}
       <p class="update-card__area">${escapeHtml(a.area)} · ${escapeHtml(a.severity)}</p>
+      ${renderUpdateReadMore(a)}
     </article>`
     )
     .join("");
@@ -2264,13 +2576,15 @@ async function loadUpdates() {
         event: "Flash Flood Warning",
         area: "West Maui, Lahaina",
         severity: "Severe",
+        url: "https://www.mauicounty.gov/983/MEMA-Alerts",
         text: "Evacuate low-lying areas immediately. Proceed to higher ground.",
       },
       {
-        source: "Wireless Emergency Alert",
+        source: "National Weather Service",
         event: "Road Advisory",
         area: "Lahaina",
         severity: "Moderate",
+        url: "https://www.weather.gov/hfo/",
         text: "Avoid Honoapiilani Highway, flooding reported.",
       },
       {
@@ -2278,6 +2592,7 @@ async function loadUpdates() {
         event: "Shelter Open",
         area: "Central Maui",
         severity: "Info",
+        url: "https://www.mauifire.gov/",
         text: "War Memorial Gym accepting evacuees. Bring ID and medications.",
       },
     ];
@@ -2292,8 +2607,8 @@ function renderPlatform() {
   const greeting = $("platform-greeting");
   const avatar = $("platform-avatar");
 
-  if (greeting) greeting.textContent = `Hi, ${firstName(d.name)}`;
-  if (avatar) avatar.textContent = initials(d.name);
+  if (greeting) greeting.textContent = `Hi, ${firstName(d.first_name || d.name)}`;
+  if (avatar) avatar.textContent = initials(fullName(d));
 
   renderMapPins();
   renderMapRoute();
@@ -2325,7 +2640,9 @@ function skipOnboardingDev() {
     lng: -156.6797,
   };
   state.data = {
-    name: "Alex",
+    first_name: "Alex",
+    last_name: "Rivera",
+    name: "Alex Rivera",
     phone: "+1 (808) 555-0142",
     birth_date: "1990-06-15",
     age: 35,
@@ -2367,16 +2684,13 @@ async function enterPlatform(guidance) {
   document.querySelectorAll(".step").forEach((s) => {
     s.classList.remove("is-active", "is-leaving", "is-entering", "is-animating");
   });
-  $("progress-label").textContent = "";
 
   const app = $("app");
   const platform = $("platform");
   if (app) app.classList.add("platform-mode");
   if (platform) {
     platform.hidden = false;
-    renderPlatform();
     switchPlatformTab("home");
-    startDemoStatePolling();
     if (prefersReducedMotion()) {
       platform.classList.add("is-active");
     } else {
@@ -2385,10 +2699,18 @@ async function enterPlatform(guidance) {
         requestAnimationFrame(() => platform.classList.add("is-active"));
       });
     }
+    try {
+      renderPlatform();
+      startDemoStatePolling();
+    } catch (err) {
+      console.error("Platform render failed", err);
+    }
   }
 }
 
 function exitPlatform() {
+  closeMapFullscreen();
+  destroyLeafletMap("preview");
   const app = $("app");
   const platform = $("platform");
   if (app) app.classList.remove("platform-mode");
@@ -2403,29 +2725,12 @@ function exitPlatform() {
 
 // ---- Live scenario sync ----------------------------------------------------
 // While on the platform, poll the MCP bridge's /demo-state. When the Poke-driven
-// scenario is active, mirror it in the app: news feed, "Right now" tasks, guidance,
-// and a live map pin that moves with the family's GPS. No-ops when the MCP server
-// isn't running or no scenario is active, so the normal app is unaffected.
+// scenario is active, mirror it in the app: news feed, "Right now" tasks, and guidance.
+// Map pins stay static in this demo.
 let demoStateTimer = null;
 
-// Bounding box of the Haiku -> Hana evacuation corridor, to project GPS onto the
-// stylized map (approximate — conveys movement, not survey-grade position).
-const DEMO_BBOX = { latMin: 20.75, latMax: 20.93, lngMin: -156.3, lngMax: -155.98 };
-
-function updateLiveMapPin(pos) {
-  const el = $("map-pins");
-  if (!el || !pos) return;
-  const x = Math.max(3, Math.min(97, ((pos.lng - DEMO_BBOX.lngMin) / (DEMO_BBOX.lngMax - DEMO_BBOX.lngMin)) * 100));
-  const y = Math.max(3, Math.min(97, ((DEMO_BBOX.latMax - pos.lat) / (DEMO_BBOX.latMax - DEMO_BBOX.latMin)) * 100));
-  let pin = el.querySelector(".map-pin--live");
-  if (!pin) {
-    pin = document.createElement("div");
-    pin.className = "map-pin map-pin--you map-pin--live";
-    pin.innerHTML = '<span class="map-pin__dot"></span><span class="map-pin__label">You</span><span class="map-pin__status">Evacuating</span>';
-    el.appendChild(pin);
-  }
-  pin.style.left = `${x}%`;
-  pin.style.top = `${y}%`;
+function updateLiveMapPin() {
+  // Static pins only — demo GPS movement is not shown on the home map.
 }
 
 // Calm "all clear" state — shown whenever no disaster/scenario is active. The app's
@@ -2475,7 +2780,7 @@ function applyDemoState(d) {
     const items = d.tasks.map((t, i) => ({ id: `live-${i}`, label: t, detail: "", urgent: true }));
     renderPrepListSection("prep-now-list", items, "now");
   }
-  if (d.position) updateLiveMapPin(d.position);
+  if (d.position) updateLiveMapPin();
 }
 
 async function pollDemoStateOnce() {
@@ -2577,7 +2882,8 @@ function resetForm() {
   state.prepChecked = {};
   state.cachedAlerts = [];
 
-  $("name").value = "";
+  $("first-name").value = "";
+  $("last-name").value = "";
   $("phone").value = "";
   document.querySelectorAll('input[type="radio"]').forEach((r) => (r.checked = false));
 
@@ -2610,7 +2916,6 @@ function resetForm() {
     s.classList.remove("is-active", "is-leaving", "is-entering", "is-animating");
   });
   $("step-welcome").classList.add("is-active");
-  updateProgressLabel();
 }
 
 function bindAccessibilityOther() {
@@ -2677,12 +2982,14 @@ function bindPlatform() {
     navigateToNearestShelter();
   });
 
-  $("map-route-layer")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-map-view-route]");
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-    showMapRouteLine();
+  $("home-map")?.addEventListener("click", () => openMapFullscreen());
+  $("btn-map-close")?.addEventListener("click", () => closeMapFullscreen());
+  $("btn-map-zoom-in")?.addEventListener("click", () => state.leaflet.fullscreen?.zoomIn());
+  $("btn-map-zoom-out")?.addEventListener("click", () => state.leaflet.fullscreen?.zoomOut());
+  $("map-fullscreen-container")?.addEventListener("click", () => hideMapPersonCard());
+  $("map-person-card")?.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.mapFullscreenOpen) closeMapFullscreen();
   });
 
   document.querySelectorAll("#update-pills .platform-pill").forEach((pill) => {
@@ -2758,6 +3065,5 @@ document.addEventListener("DOMContentLoaded", () => {
   bindAccessibilityOther();
   bindReviewList();
   bindProfileList();
-  updateProgressLabel();
   if (shouldAutoSkipOnboarding()) skipOnboardingDev();
 });

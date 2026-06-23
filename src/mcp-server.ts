@@ -25,6 +25,28 @@ const shelters = JSON.parse(readFileSync("data/shelters.json", "utf8"));
 // arms a simulated Lahaina flood; the next poll then trips and Poke alerts you.
 let demoArmed = false;
 
+const SOURCE_ARTICLE_URLS: [string, string][] = [
+  ["national weather service", "https://www.weather.gov/hfo/"],
+  ["maui county", "https://www.mauicounty.gov/983/MEMA-Alerts"],
+  ["civil defense", "https://www.mauicounty.gov/983/MEMA-Alerts"],
+  ["maui now", "https://mauinow.com/2021/03/08/breaking-maui-kaupakalua-dam-overflows-evacuations-ordered-haiku/"],
+  ["maui news", "https://www.mauinews.com/news/local-news/2021/03/water-crests-dam-destroys-bridge-and-damages-homes/"],
+  ["hawaii news now", "https://www.hawaiinewsnow.com/2021/03/08/flash-flood-watch-issued-big-island-maui-county/"],
+  ["civil beat", "https://civilbeat.org/2021/03/maui-area-evacuated-after-heavy-rains-cause-dam-to-overflow/"],
+];
+
+function alertArticleUrl(a: any): string | undefined {
+  if (a?.url) return a.url;
+  if (a?.article_url) return a.article_url;
+  const src = String(a?.source || "");
+  if (/^https?:\/\//i.test(src)) return src;
+  const lower = src.toLowerCase();
+  for (const [needle, url] of SOURCE_ARTICLE_URLS) {
+    if (lower.includes(needle)) return url;
+  }
+  return undefined;
+}
+
 // When armed, Browserbase discovers + reads the top news articles for the event
 // (demoFloodAlerts -> discoverAlerts). That takes minutes, so we run it in the
 // BACKGROUND on arming and cache the result — the tool calls (which Poke awaits)
@@ -377,8 +399,22 @@ app.get("/demo-state", (_req, res) => {
       ? { lat: snap.position.lat, lng: snap.position.lng, speed_mph: snap.position.speed_mph, heading_deg: snap.position.heading_deg }
       : null,
     shelters: snap.shelters,
-    news: [...snap.alerts].reverse().slice(0, 12).map((a: any) => ({ source: a.source, event: a.event, area: a.area, text: a.text, severity: a.severity, issued_at: a.issued_at })),
-    web_articles: news.slice(0, 8).map((a: any) => ({ source: a.source, event: a.event, text: a.text, published: a.article_published })),
+    news: [...snap.alerts].reverse().slice(0, 12).map((a: any) => ({
+      source: a.source,
+      event: a.event,
+      area: a.area,
+      text: a.text,
+      severity: a.severity,
+      issued_at: a.issued_at,
+      url: alertArticleUrl(a),
+    })),
+    web_articles: news.slice(0, 8).map((a: any) => ({
+      source: a.source,
+      event: a.event,
+      text: a.text,
+      published: a.article_published,
+      url: alertArticleUrl(a),
+    })),
     guidance: lastGuidance,
     tasks: lastGuidance ? deriveTasks(lastGuidance, snap) : [],
   });

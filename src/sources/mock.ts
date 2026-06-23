@@ -2,12 +2,15 @@ export function mockAlerts() {
   return [
     { source: "County civil defense", event: "Flash Flood Warning",
       area: "West Maui, Lahaina", severity: "Severe",
+      url: "https://www.mauicounty.gov/983/MEMA-Alerts",
       text: "Evacuate low-lying areas immediately. Proceed to higher ground." },
-    { source: "Wireless Emergency Alert", event: "Flood Warning",
+    { source: "National Weather Service", event: "Flood Warning",
       area: "Lahaina", severity: "Extreme",
+      url: "https://www.weather.gov/hfo/",
       text: "Move to designated shelters now. Avoid Honoapiilani Highway, flooding reported." },
-    { source: "Local radio summary", event: "Advisory",
+    { source: "Maui Now", event: "Advisory",
       area: "Lahaina town", severity: "Moderate",
+      url: "https://mauinow.com/",
       text: "Some residents advised to shelter in place; conditions changing." }
   ];
 }

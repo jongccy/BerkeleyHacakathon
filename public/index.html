@@ -2,12 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#fafafa">
   <title>Maui Evac</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -37,16 +40,22 @@
     <section class="step" data-step="1">
       <div class="step__visual"><div class="halo halo--sm" aria-hidden="true"><div class="halo__ring"></div><div class="halo__ring halo__ring--inner"></div><div class="halo__particles"></div></div></div>
       <div class="step__body">
-        <p class="step__counter" data-counter></p>
+        <p class="step__counter" data-counter>Profile setup</p>
         <h2 class="step__title">Stay reachable</h2>
         <p class="step__subtitle">Emergency instructions will be sent to your phone by text.</p>
         <div class="step__form">
-          <div class="field">
-            <label for="name">Your name</label>
-            <input id="name" type="text" placeholder="First name" autocomplete="name">
+          <div class="name-fields">
+            <div class="field">
+              <label for="first-name">First name</label>
+              <input id="first-name" type="text" placeholder="First" autocomplete="given-name">
+            </div>
+            <div class="field">
+              <label for="last-name">Last name</label>
+              <input id="last-name" type="text" placeholder="Last" autocomplete="family-name">
+            </div>
           </div>
           <div class="field">
-            <label for="phone">Mobile number <span class="req">Required</span></label>
+            <label for="phone">Mobile number</label>
             <input id="phone" type="tel" inputmode="tel" placeholder="+1 (555) 000-0000" autocomplete="tel" required maxlength="18">
             <p id="phone-hint" class="hint"></p>
           </div>
@@ -240,6 +249,7 @@
     <!-- Review -->
     <section class="step" data-step="10">
       <div class="step__body step__body--scroll">
+        <p class="step__counter" data-counter>Review</p>
         <h2 class="step__title">Please review and verify your emergency profile</h2>
         <p class="step__subtitle">Confirm each item below to activate your profile. Hover any row to edit it here.</p>
         <ul id="review-list" class="review-list"></ul>
@@ -253,13 +263,10 @@
 
     <!-- Result step removed — platform loads after activation -->
 
-    <p id="progress-label" class="progress-label" aria-live="polite"></p>
-
     <!-- Main platform (post-onboarding) -->
     <div id="platform" class="platform" hidden>
       <header class="platform-header">
         <div class="platform-header__brand">
-          <span class="platform-header__mark" aria-hidden="true"></span>
           <h1 class="platform-header__title" id="platform-greeting">Family</h1>
         </div>
         <div class="platform-header__actions">
@@ -267,20 +274,19 @@
         </div>
       </header>
 
-      <main class="platform-main">
+      <main class="platform-main content-gutter">
         <!-- Home -->
         <div class="platform-view is-active" data-platform-view="home">
           <div class="home-scroll">
-            <section class="platform-map" id="home-map" aria-label="Family map">
-              <div class="platform-map__bg"></div>
-              <div class="platform-map__route-layer" id="map-route-layer" hidden></div>
-              <div class="platform-map__pins" id="map-pins"></div>
-              <div class="platform-map__actions">
-                <button type="button" class="platform-map__nav-btn" id="btn-nearest-shelter">
-                  <span class="platform-map__nav-icon" aria-hidden="true">📍</span>
-                  Nearest shelter
-                </button>
-              </div>
+            <section class="home-section home-section--map" id="home-map-block">
+              <button type="button" class="platform-map platform-map--preview" id="home-map" aria-label="Open family map fullscreen">
+                <div id="home-map-preview" class="platform-map__leaflet"></div>
+                <span class="platform-map__expand-hint">Tap to expand map</span>
+              </button>
+              <button type="button" class="btn btn--map-action" id="btn-nearest-shelter">
+                Navigate to Nearest Shelter
+              </button>
+              <div id="home-route-banner" class="home-route-banner" hidden></div>
             </section>
 
             <section class="home-section">
@@ -426,6 +432,16 @@
       </div>
     </div>
 
+    <div class="map-fullscreen" id="map-fullscreen" hidden>
+      <div id="map-fullscreen-container" class="map-fullscreen__map"></div>
+      <button type="button" class="map-fullscreen__close" id="btn-map-close" aria-label="Close map">×</button>
+      <div class="map-zoom-controls" aria-label="Zoom controls">
+        <button type="button" class="map-zoom-controls__btn" id="btn-map-zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" class="map-zoom-controls__btn" id="btn-map-zoom-out" aria-label="Zoom out">−</button>
+      </div>
+      <div id="map-person-card" class="map-person-card" hidden role="dialog" aria-modal="true"></div>
+    </div>
+
     <div class="platform-overlay" id="broadcast-overlay" hidden>
       <div class="platform-sheet-modal platform-sheet-modal--sm" role="dialog" aria-labelledby="broadcast-sheet-title" aria-modal="true">
         <div class="platform-sheet-modal__head">
@@ -444,6 +460,7 @@
     </div>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/app.js" defer></script>
 </body>
 </html>
