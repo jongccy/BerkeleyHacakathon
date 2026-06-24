@@ -1,0 +1,5 @@
+demo-data
+app.db
+*.db-shm
+*.db-wal
+.env

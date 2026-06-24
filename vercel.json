@@ -1,0 +1,10 @@
+{
+  "experimentalServices": {
+    "maui-evac": {
+      "type": "web",
+      "routePrefix": "/",
+      "framework": "express",
+      "entrypoint": "src/server.ts"
+    }
+  }
+}

@@ -6,14 +6,30 @@ import { mockAlerts } from "./sources/mock.js";
 import { nwsAlerts } from "./sources/nws.js";
 import { mauiScrapedAlerts } from "./sources/maui.js";
 import { geocodeAddress, suggestAddresses } from "./geocode.js";
-import { readFileSync } from "fs";
+import { readDataFile } from "./data-path.js";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
-const shelters = JSON.parse(readFileSync("data/shelters.json", "utf8"));
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
+const shelters = JSON.parse(readDataFile("shelters.json"));
 const app = express();
 app.use(express.json());
-app.use(express.static("public"));
 
-app.post("/api/advise", async (req, res) => {
+if (process.env.VERCEL) {
+  app.use(express.static(PUBLIC_DIR));
+} else {
+  app.use(express.static("public"));
+}
+
+/** Register API route for local (/api/…) and Vercel (prefix stripped to /…). */
+function onApi(method: "get" | "post", path: string, ...handlers: express.RequestHandler[]) {
+  app[method](path, ...handlers);
+  if (process.env.VERCEL && path.startsWith("/api")) {
+    app[method](path.slice(4) || "/", ...handlers);
+  }
+}
+
+onApi("post", "/api/advise", async (req, res) => {
   try {
     const p = req.body;
 
@@ -53,30 +69,33 @@ app.post("/api/advise", async (req, res) => {
   }
 });
 
-app.get("/api/updates", (_req, res) => {
+onApi("get", "/api/updates", (_req, res) => {
   res.json(mockAlerts());
 });
 
-app.get("/api/shelters", (_req, res) => {
+onApi("get", "/api/shelters", (_req, res) => {
   res.json(shelters);
 });
 
-app.get("/api/address/suggest", async (req, res) => {
+onApi("get", "/api/address/suggest", async (req, res) => {
   const q = String(req.query.q || "");
   const suggestions = await suggestAddresses(q, 6);
   res.json(suggestions);
 });
 
-// Expose the client-side Google Maps key (if configured) to the browser.
-// Null when unset -> the form falls back to a plain text box + server geocoding.
-app.get("/api/config", (_req, res) => {
+onApi("get", "/api/config", (_req, res) => {
   res.json({ googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || null });
 });
 
-app.get("/api/health", (_req, res) => {
+onApi("get", "/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
-app.listen(PORT, HOST, () => console.log(`http://${HOST}:${PORT}`));
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, HOST, () => console.log(`http://${HOST}:${PORT}`));
+}
+
+export default app;
