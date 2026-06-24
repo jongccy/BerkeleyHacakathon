@@ -1,0 +1,17 @@
+# Deploy: https://dashboard.render.com/blueprint/new?repo=https://github.com/jongccy/BerkeleyHacakathon
+services:
+  - type: web
+    name: maui-evac
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false

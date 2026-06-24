@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "tsx src/server.ts",
     "pipeline": "tsx src/pipeline.ts",
     "server": "tsx src/server.ts",
     "demo:build": "tsx demo-data/build-demo-db.ts",
@@ -21,13 +22,16 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "twilio": "^6.0.2",
+    "tsx": "^4.19.4",
     "zod": "^3.24.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.29",
-    "tsx": "^4.19.4",
     "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
